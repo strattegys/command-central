@@ -4,6 +4,62 @@
 
 This is the EXACT schema from your CRM instance. Use this as the definitive reference.
 
+## CRITICAL: Relationship Model
+
+Twenty CRM uses **junction tables** to link notes and tasks to contacts. You CANNOT link them directly when creating.
+
+### How to Link a Note to a Contact
+
+**Step 1**: Create the note
+```bash
+NOTE_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting with Mike H","bodyV2":{"markdown":"Discussed partnership"}}')
+NOTE_ID=$(echo $NOTE_RESPONSE | jq -r '.data.createNote.id')
+```
+
+**Step 2**: Create a NoteTarget to link it to the contact
+```bash
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"'$NOTE_ID'","targetPersonId":"2e9a0129-98b2-412c-91cf-866b3739a60e"}'
+```
+
+### How to Link a Task to a Contact
+
+**Step 1**: Create the task
+```bash
+TASK_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Mike H","bodyV2":{"markdown":"Send proposal"}}')
+TASK_ID=$(echo $TASK_RESPONSE | jq -r '.data.createTask.id')
+```
+
+**Step 2**: Create a TaskTarget to link it to the contact
+```bash
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"'$TASK_ID'","targetPersonId":"2e9a0129-98b2-412c-91cf-866b3739a60e"}'
+```
+
+### Junction Table Operations
+
+**NoteTarget** - Links notes to contacts/companies/opportunities
+```bash
+# Link note to person
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetPersonId":"<person-id>"}'
+
+# Link note to company
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetCompanyId":"<company-id>"}'
+
+# Link note to opportunity
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetOpportunityId":"<opportunity-id>"}'
+```
+
+**TaskTarget** - Links tasks to contacts/companies/opportunities
+```bash
+# Link task to person
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"<task-id>","targetPersonId":"<person-id>"}'
+
+# Link task to company
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"<task-id>","targetCompanyId":"<company-id>"}'
+
+# Link task to opportunity
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"<task-id>","targetOpportunityId":"<opportunity-id>"}'
+```
+
 ## Person (Contact) Schema
 
 ### Writable Fields (for create/update)
@@ -240,10 +296,34 @@ bash /root/.nanobot/tools/twenty_crm.sh create-opportunity '{"name":"Test Deal"}
 ```bash
 # 1. Create contact
 CONTACT_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-contact '{"name":{"firstName":"Mike","lastName":"H"},"linkedinLink":{"primaryLinkUrl":"https://linkedin.com/in/micahgtm","primaryLinkLabel":"LinkedIn"},"jobTitle":"GTM Strategy"}')
+CONTACT_ID=$(echo $CONTACT_RESPONSE | jq -r '.data.createPerson.id')
 
-# 2. Create note (will appear in Mike H's timeline)
-bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Mike H - Initial Contact","bodyV2":{"markdown":"Met at conference.\n\nInterested in:\n- Partnership opportunities\n- Product demo"}}'
+# 2. Create note
+NOTE_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Mike H - Initial Contact","bodyV2":{"markdown":"Met at conference.\n\nInterested in:\n- Partnership opportunities\n- Product demo"}}')
+NOTE_ID=$(echo $NOTE_RESPONSE | jq -r '.data.createNote.id')
 
-# 3. Create task (will appear in Mike H's timeline)
-bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Mike H","bodyV2":{"markdown":"Send proposal and schedule demo call"},"status":"TODO","dueAt":"2026-03-20T10:00:00.000Z"}'
+# 3. Link note to contact
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target "{\"noteId\":\"$NOTE_ID\",\"targetPersonId\":\"$CONTACT_ID\"}"
+
+# 4. Create task
+TASK_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Mike H","bodyV2":{"markdown":"Send proposal and schedule demo call"},"status":"TODO","dueAt":"2026-03-20T10:00:00.000Z"}')
+TASK_ID=$(echo $TASK_RESPONSE | jq -r '.data.createTask.id')
+
+# 5. Link task to contact
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target "{\"taskId\":\"$TASK_ID\",\"targetPersonId\":\"$CONTACT_ID\"}"
+```
+
+### Simplified Workflow (if contact already exists)
+
+```bash
+# Mike H's contact ID
+MIKE_ID="2e9a0129-98b2-412c-91cf-866b3739a60e"
+
+# Create and link note
+NOTE_ID=$(bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"LinkedIn Message 1","bodyV2":{"markdown":"Mike, build this and your life will never be the same."}}' | jq -r '.data.createNote.id')
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target "{\"noteId\":\"$NOTE_ID\",\"targetPersonId\":\"$MIKE_ID\"}"
+
+# Create and link task
+TASK_ID=$(bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up on LinkedIn message","status":"TODO"}' | jq -r '.data.createTask.id')
+bash /root/.nanobot/tools/twenty_crm.sh create-task-target "{\"taskId\":\"$TASK_ID\",\"targetPersonId\":\"$MIKE_ID\"}"
 ```
