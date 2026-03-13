@@ -87,21 +87,18 @@ is_gmoney() {
 is_connection_request() {
     local message_text="$1"
     local sender_name="$2"
+    local participant_count="$3"
+    local participant_name="$4"
     
-    # Check for GMoney's connection request pattern
-    if [[ "$message_text" == *"as a Business Content Artist, I'm looking to help B2B SaaS and tech brands turn complex concepts into authentic, creative narratives"* ]] && [[ "$message_text" == *"I'm looking to connect with innovative marketing leaders like you"* ]]; then
-        # This is a connection request sent by GMoney
-        # The API incorrectly reports it as if recipient sent to themselves
+    # Structural detection: Single participant + sender != participant = connection request
+    if [[ "$participant_count" == "1" ]] && [[ "$sender_name" != "$participant_name" ]]; then
+        echo "Structural detection: Connection request (sender: $sender_name, participant: $participant_name)"
         return 0
     fi
     
-    # Check for connection acceptance pattern (from Noé example)
+    # Fallback: Pattern-based detection for edge cases
     if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
-        return 0
-    fi
-    
-    # Check for generic connection request pattern (like sarath's message)
-    if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"I enjoy networking with"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
+        echo "Pattern detection: Connection request"
         return 0
     fi
     
@@ -329,13 +326,17 @@ find_contact_by_linkedin_url() {
         MESSAGE_TEXT=$(echo "$conversation" | jq -r '.latestMessage.text // "No message text"')
         TIMESTAMP_MS=$(echo "$conversation" | jq -r '.latestMessage.sentAt // 0') # Unix timestamp in milliseconds
         SENDER_PROFILE_URL=$(echo "$conversation" | jq -r '.latestMessage.senderProfileUrl // empty')
+        
+        # Extract participant information for structural detection
+        PARTICIPANT_COUNT=$(echo "$conversation" | jq '.participants | length')
+        PARTICIPANT_NAME=$(echo "$conversation" | jq -r '.participants[0].name // empty')
 
         # Convert timestamp to human-readable format
         TIMESTAMP_SEC=$(($TIMESTAMP_MS / 1000))
         HUMAN_READABLE_TIMESTAMP=$(date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %H:%M:%S")
 
-        # Check if this is a connection request (sent by GMoney but API reports incorrectly)
-        if is_connection_request "${MESSAGE_TEXT}" "${SENDER_NAME}"; then
+        # Check if this is a connection request (using structural detection)
+        if is_connection_request "${MESSAGE_TEXT}" "${SENDER_NAME}" "${PARTICIPANT_COUNT}" "${PARTICIPANT_NAME}"; then
             echo "--- Connection Request (GMoney's - no alert) ---"
             echo "Conversation ID: ${CONVERSATION_ID}"
             echo "From: ${SENDER_NAME} (actually GMoney's connection request)"
@@ -343,13 +344,12 @@ find_contact_by_linkedin_url() {
             echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
             echo "-------------------"
             
-            # Extract recipient name from message (the person who received the connection request)
-            EXTRACTED_NAME=$(echo "$MESSAGE_TEXT" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1)
-            if [ -n "$EXTRACTED_NAME" ] && [ "$EXTRACTED_NAME" != "" ]; then
-                echo "Extracted recipient: ${EXTRACTED_NAME}"
+            # Use participant name as recipient (more reliable than parsing message text)
+            if [ -n "$PARTICIPANT_NAME" ] && [ "$PARTICIPANT_NAME" != "" ]; then
+                echo "Recipient (from participant): ${PARTICIPANT_NAME}"
                 
                 # Get full name for recipient
-                RECIPIENT_NAME=$(get_full_recipient_name "${EXTRACTED_NAME}")
+                RECIPIENT_NAME=$(get_full_recipient_name "${PARTICIPANT_NAME}")
                 echo "Full recipient name: ${RECIPIENT_NAME}"
                 
                 # Create contact for recipient (no LinkedIn profile)
