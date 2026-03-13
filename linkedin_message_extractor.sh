@@ -90,8 +90,9 @@ is_connection_request() {
     local participant_count="$3"
     local participant_name="$4"
     
-    # Structural detection: Single participant + sender != participant = connection request
-    if [[ "$participant_count" == "1" ]] && [[ "$sender_name" != "$participant_name" ]]; then
+    # Structural detection: Single participant + sender == participant = connection request
+    # (API incorrectly reports recipient as sender for connection requests)
+    if [[ "$participant_count" == "1" ]] && [[ "$sender_name" == "$participant_name" ]]; then
         echo "Structural detection: Connection request (sender: $sender_name, participant: $participant_name)"
         return 0
     fi
@@ -99,6 +100,12 @@ is_connection_request() {
     # Fallback: Pattern-based detection for edge cases
     if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
         echo "Pattern detection: Connection request"
+        return 0
+    fi
+    
+    # Additional pattern: Business Content Artist connection requests
+    if [[ "$message_text" == *"as a Business Content Artist, I'm looking to help B2B SaaS and tech brands"* ]] && [[ "$message_text" == *"I'm looking to connect with innovative marketing leaders"* ]]; then
+        echo "Pattern detection: Business Content Artist connection request"
         return 0
     fi
     
