@@ -250,11 +250,30 @@ CONVERSATIONS=$(echo "$RESPONSE" | jq -c '.conversations[]')
 if [ -z "$CONVERSATIONS" ]; then
     echo "No new conversations found."
 else
+    # Track processed conversation IDs to avoid duplicates
+    declare -A processed_conversations
+
+    # Check if conversation was already processed
+    is_already_processed() {
+        local conversation_id="$1"
+        # Check if a note already exists for this conversation ID
+        local existing_note=$(bash "$TWENTY_CRM_TOOL" list-notes 2>/dev/null | jq -r '.[] | select(.bodyV2.markdown and (.bodyV2.markdown | contains("'$conversation_id'"))) | .id // empty')
+        if [ -n "$existing_note" ]; then
+            echo "Conversation $conversation_id already processed - stopping"
+            return 0
+        fi
+        return 1
+    }
+
     echo "Found new conversations. Processing..."
     MESSAGE_COUNT=0
     
     echo "$CONVERSATIONS" | while IFS= read -r conversation; do
         CONVERSATION_ID=$(echo "$conversation" | jq -r '.conversationId')
+        if is_already_processed "$CONVERSATION_ID"; then
+            echo "Stopping due to already processed conversation"
+            break
+        fi
         SENDER_NAME=$(echo "$conversation" | jq -r '.latestMessage.senderName // "Unknown Sender"')
         MESSAGE_TEXT=$(echo "$conversation" | jq -r '.latestMessage.text // "No message text"')
         TIMESTAMP_MS=$(echo "$conversation" | jq -r '.latestMessage.sentAt // 0') # Unix timestamp in milliseconds
