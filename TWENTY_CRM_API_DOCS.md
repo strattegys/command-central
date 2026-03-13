@@ -279,29 +279,46 @@ bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Jo
 
 **Endpoint**: `POST /rest/notes`
 
-**IMPORTANT**: Notes only have a `title` field. There is NO `body` or `content` field in the REST API.
+**IMPORTANT**: Notes use `bodyV2` for rich text content (not `body` or `content`).
 
-**Minimal Payload**:
+**Minimal Payload (title only)**:
 ```json
 {
-  "title": "Meeting Notes - Discussed partnership opportunities"
+  "title": "Meeting Notes"
+}
+```
+
+**With Body Content (Rich Text)**:
+```json
+{
+  "title": "Meeting Notes",
+  "bodyV2": {
+    "markdown": "Discussed partnership opportunities and next steps.\n\n- Action item 1\n- Action item 2"
+  }
 }
 ```
 
 **With Position**:
 ```json
 {
-  "title": "Meeting Notes - Discussed partnership opportunities",
+  "title": "Meeting Notes",
+  "bodyV2": {
+    "markdown": "Your note content here"
+  },
   "position": 0
 }
 ```
 
-**Example Command**:
+**Example Commands**:
 ```bash
-bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes - Discussed partnership opportunities"}'
+# Simple note with title only
+bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes"}'
+
+# Note with body content
+bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes","bodyV2":{"markdown":"Discussed partnership opportunities"}}'
 ```
 
-**Note**: The note object has a `bodyV2` field (RichTextV2 object) but it's not accessible via REST API create. Put all content in the `title` field.
+**Note**: The `bodyV2` field is a RichTextV2 object that accepts markdown. The system will automatically convert it to BlockNote format for rich text editing in the UI.
 
 ## Calendar Events API
 
