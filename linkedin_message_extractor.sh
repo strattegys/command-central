@@ -28,6 +28,27 @@ save_last_cursor() {
     jq -n --arg cursor "$new_cursor" '{"last_cursor": $cursor}' > "$STATE_FILE"
 }
 
+# Function to extract recipient name from message text
+extract_recipient_name() {
+    local message_text="$1"
+    # Extract name from "Hey Name," pattern at the beginning of message
+    echo "$message_text" | grep -o '^Hey [^,]*,' | sed 's/^Hey //' | sed 's/,//' | head -1
+}
+
+# Function to check if sender is GMoney
+is_gmoney() {
+    local sender_name="$1"
+    # Check if sender is Govind Davis (GMoney)
+    [[ "$sender_name" == "Govind Davis" ]]
+}
+
+# Function to convert \n to actual line breaks in markdown
+convert_line_breaks() {
+    local content="$1"
+    # Convert literal \n to actual newlines for markdown
+    echo "$content" | sed 's/\\n/\n/g'
+}
+
 # Function to send alert to GMoney
 send_alert() {
     local message="$1"
@@ -197,29 +218,71 @@ else
         TIMESTAMP_SEC=$(($TIMESTAMP_MS / 1000))
         HUMAN_READABLE_TIMESTAMP=$(date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %H:%M:%S")
 
-        NOTE_TITLE="LinkedIn Message from ${SENDER_NAME}"
-        NOTE_CONTENT="**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
-
-        echo "--- New Message ---"
-        echo "Conversation ID: ${CONVERSATION_ID}"
-        echo "From: ${SENDER_NAME}"
-        echo "Message: ${MESSAGE_TEXT}"
-        echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
-        echo "-------------------"
-
-        # Find or create contact
-        CONTACT_ID=$(find_or_create_contact "${SENDER_NAME}" "${SENDER_PROFILE_URL}")
-        if [ -z "$CONTACT_ID" ]; then
-            echo "Failed to find or create contact for ${SENDER_NAME}. Skipping note creation." >&2
-            continue
-        fi
-
-        # Create note and link to contact
-        if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${NOTE_CONTENT}"; then
-            MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
-            send_alert "New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:100}..."
+        # Check if sender is GMoney
+        if is_gmoney "${SENDER_NAME}"; then
+            echo "--- GMoney's Message (no alert) ---"
+            echo "Conversation ID: ${CONVERSATION_ID}"
+            echo "From: ${SENDER_NAME} (GMoney)"
+            echo "Message: ${MESSAGE_TEXT}"
+            echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
+            echo "-------------------"
+            
+            # Extract recipient name from message
+            RECIPIENT_NAME=$(extract_recipient_name "${MESSAGE_TEXT}")
+            if [ -n "$RECIPIENT_NAME" ] && [ "$RECIPIENT_NAME" != "" ]; then
+                echo "Extracted recipient: ${RECIPIENT_NAME}"
+                
+                # Create contact for recipient (no LinkedIn profile available)
+                CONTACT_ID=$(find_or_create_contact "${RECIPIENT_NAME}" "")
+                if [ -z "$CONTACT_ID" ]; then
+                    echo "Failed to find or create contact for recipient ${RECIPIENT_NAME}. Skipping note creation." >&2
+                    continue
+                fi
+                
+                NOTE_TITLE="LinkedIn Message to ${RECIPIENT_NAME}"
+                NOTE_CONTENT="**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+                
+                # Convert line breaks for proper markdown formatting
+                FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")
+                
+                # Create note and link to recipient contact (no alert)
+                if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${FORMATTED_CONTENT}"; then
+                    MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
+                    echo "Logged GMoney's message to ${RECIPIENT_NAME} (no alert sent)"
+                else
+                    echo "Failed to create note for GMoney's message to ${RECIPIENT_NAME}" >&2
+                fi
+            else
+                echo "Could not extract recipient name from GMoney's message. Skipping note creation." >&2
+            fi
         else
-            echo "Failed to create note for message from ${SENDER_NAME}" >&2
+            echo "--- New Message ---"
+            echo "Conversation ID: ${CONVERSATION_ID}"
+            echo "From: ${SENDER_NAME}"
+            echo "Message: ${MESSAGE_TEXT}"
+            echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
+            echo "-------------------"
+
+            # Find or create contact for sender
+            CONTACT_ID=$(find_or_create_contact "${SENDER_NAME}" "${SENDER_PROFILE_URL}")
+            if [ -z "$CONTACT_ID" ]; then
+                echo "Failed to find or create contact for ${SENDER_NAME}. Skipping note creation." >&2
+                continue
+            fi
+
+            NOTE_TITLE="LinkedIn Message from ${SENDER_NAME}"
+            NOTE_CONTENT="**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+            
+            # Convert line breaks for proper markdown formatting
+            FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")
+
+            # Create note and link to contact with alert
+            if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${FORMATTED_CONTENT}"; then
+                MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
+                send_alert "New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:100}..."
+            else
+                echo "Failed to create note for message from ${SENDER_NAME}" >&2
+            fi
         fi
     done
     
