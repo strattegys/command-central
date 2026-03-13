@@ -1,156 +1,173 @@
-# NanoClaw Architecture
+# Agent Tim Architecture
 
-Technical architecture documentation for the NanoClaw deployment.
+Technical architecture documentation for Agent Tim running on Nanobot framework.
 
 ## System Overview
 
-NanoClaw is a lightweight AI agent framework that runs AI assistants in isolated Docker containers with multi-channel messaging support.
+Nanobot is an MCP-native AI agent framework that provides a lightweight gateway for AI assistants with multi-channel messaging support. Unlike container-based frameworks, Nanobot runs as a single Python process with custom tool integration.
 
 ## Component Architecture
 
-### 1. Main Process (Node.js)
+### 1. Nanobot Gateway (Python)
 
-**Location**: `/opt/nanoclaw/dist/index.js`
+**Location**: `/root/.local/bin/nanobot`
 
 **Responsibilities**:
 - Message orchestration and routing
-- Channel management (Telegram, WhatsApp, Discord, etc.)
-- Database operations (SQLite)
-- Container lifecycle management
-- Credential proxy server
-- IPC (Inter-Process Communication) handling
+- Channel management (Telegram)
+- Agent loop and session management
+- LLM provider integration (Gemini, Groq)
+- Tool execution (bash scripts)
+- Conversation persistence
 
 **Key Files**:
-- `src/index.ts` - Main orchestrator
-- `src/db.ts` - SQLite database operations
-- `src/config.ts` - Configuration management
-- `src/credential-proxy.ts` - API key proxy server
+- `/root/.nanobot/config.json` - Configuration
+- `/root/.nanobot/system-prompt.md` - Agent personality and instructions
+- `/root/.nanobot/tools/` - Custom tool scripts
+- `/root/.nanobot/sessions/` - Conversation sessions
 
-### 2. Channel Handlers
+### 2. Telegram Channel Handler
 
-**Location**: `/opt/nanoclaw/src/channels/`
+**Configuration**: `/root/.nanobot/config.json`
 
-**Telegram Channel** (`telegram.ts`):
-- Connects to Telegram Bot API using `grammy` library
+**Telegram Integration**:
+- Connects to Telegram Bot API (@timx509_bot)
 - Receives messages via long polling
 - Sends responses back to Telegram
-- Handles commands like `/chatid`
-- Self-registers via `registerChannel()` function
+- Configured in `channels.telegram` section
+- Supports user allowlist (currently set to `["*"]` for all users)
 
-**Channel Registry** (`registry.ts`):
-- Dynamic channel registration system
-- Channels auto-register when their credentials are present
-- Factory pattern for channel instantiation
+**Channel Features**:
+- Real-time message processing
+- Typing indicators
+- Media support
+- No trigger required for main chat
 
-### 3. Docker Container Runtime
+### 3. LLM Provider Integration
 
-**Image**: `nanoclaw-agent:latest`
+**Primary Model**: Gemini 2.5 Flash (Google AI)
 
-**Base**: Debian 12 with Chromium (for web browsing capabilities)
+**Configuration**: `/root/.nanobot/config.json`
 
-**Container Lifecycle**:
-1. Main process receives message
-2. Spawns isolated container with mounted volumes
-3. Container runs agent-runner code
-4. Agent executes using Claude Code SDK
-5. Results streamed back to main process
-6. Container kept alive for follow-up messages (30min idle timeout)
-7. Container destroyed when conversation ends or timeout
-
-**Security Features**:
-- Runs as non-root user (`node`)
-- Project files mounted read-only
-- No direct API key access (proxied)
-- Isolated filesystem per conversation
-- Network access controlled
-
-### 4. Agent Runner
-
-**Location**: `/opt/nanoclaw/container/agent-runner/`
-
-**Technology**: TypeScript, Claude Code SDK (`@anthropic-ai/claude-code`)
-
-**Responsibilities**:
-- Execute AI queries using Claude Code SDK
-- Handle streaming responses
-- Manage conversation sessions
-- Process IPC messages during execution
-- Provide tools (Bash, Read, Write, Edit, WebSearch, etc.)
-
-**Key Files**:
-- `src/index.ts` - Main agent runner
-- `src/ipc-mcp-stdio.ts` - MCP server for IPC communication
-
-### 5. Credential Proxy
-
-**Port**: 3001 (internal only)
-
-**Purpose**: 
-- Intercept Anthropic API calls from containers
-- Inject real API key (never exposed to containers)
-- Containers use placeholder key + proxy URL
-- Prevents API key leakage in container logs/memory
-
-**Environment in Container**:
-```bash
-ANTHROPIC_BASE_URL=http://host.docker.internal:3001
-ANTHROPIC_API_KEY=placeholder
+**Provider Setup**:
+```json
+{
+  "providers": {
+    "groq": { "apiKey": "..." },
+    "gemini": { "apiKey": "..." }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gemini/gemini-2.5-flash",
+      "maxTokens": 4096,
+      "temperature": 0.7,
+      "maxToolIterations": 20,
+      "memoryWindow": 50
+    }
+  }
+}
 ```
 
-### 6. Database (SQLite)
+**Features**:
+- Fast response times (2-5 seconds)
+- Free tier (1500 requests/day)
+- Configurable model switching
+- Support for 20+ LLM providers
 
-**Location**: `/opt/nanoclaw/store/`
+### 4. Custom Tools
 
-**Schema**:
-- **Groups**: Registered chats/conversations
-  - `jid` (Jabber ID, e.g., `tg:123456789`)
-  - `name` (display name)
-  - `folder` (data directory)
-  - `channel` (telegram, whatsapp, etc.)
-  - `trigger` (activation pattern)
-  - `requiresTrigger` (boolean)
-  - `isMain` (boolean)
-  
-- **Messages**: Message history
-  - `groupJid`
-  - `sender`
-  - `text`
-  - `timestamp`
-  - `messageId`
+**Location**: `/root/.nanobot/tools/`
 
-- **Sessions**: Conversation sessions
-  - `groupJid`
-  - `sessionId` (Claude Code session ID)
-  - `lastActivity`
+**Available Tools**:
+
+**LinkedIn Integration** (`linkedin.sh`):
+- Profile lookup via ConnectSafely API
+- Send messages (requires confirmation)
+- Send connection requests (requires confirmation)
+- Rate limits: 120 profiles/day, 100 messages/day, 90 connections/week
+
+**Twenty CRM Integration** (`twenty_crm.sh`):
+- Full CRUD access to all CRM objects
+- Contacts, Companies, Opportunities, Tasks, Notes
+- Calendar Events, Messages, Activities
+- Attachments, Favorites, Workflows
+- Delete operations require user confirmation
+
+**Web Search** (built-in):
+- Brave Search API integration
+- Configured in `tools.web.search`
+- Max 5 results per query
+
+**Summarization** (CLI tool):
+- Content extraction from URLs, videos, PDFs
+- Uses Gemini 2.0 Flash Exp model
+- Supports multiple output lengths
+
+### 5. Twenty CRM Integration
+
+**CRM Instance**: https://stratt-central.b2bcontentartist.com
+
+**API Access**: 
+- REST API at `http://localhost:3000/rest/`
+- GraphQL API at `http://localhost:3000/graphql/`
+- Bearer token authentication
+- API key stored in `/root/.nanobot/tools/twenty_crm.sh`
+
+**Available Operations**:
+- **Contacts**: list, search, get, create, update, delete
+- **Companies**: list, search, get, create, update, delete
+- **Opportunities**: list, search, get, create, update, delete
+- **Tasks**: list, search, get, create, update, delete
+- **Notes**: list, get, create, update, delete
+- **Calendar Events**: list, get, create, update, delete
+- **Messages & Threads**: list, get, create
+- **Activities**: list, get, create
+- **Other**: attachments, favorites, workflows, workspace members
+
+### 6. Session Management
+
+**Location**: `/root/.nanobot/sessions/`
+
+**Session Storage**:
+- Conversation history per channel
+- Session persistence across restarts
+- Memory window: 50 messages (configurable)
+- Session data stored in JSON format
+
+**Configuration**:
+```json
+{
+  "agents": {
+    "defaults": {
+      "memoryWindow": 50,
+      "maxToolIterations": 20
+    }
+  }
+}
+```
 
 ### 7. File System Structure
 
 ```
-/opt/nanoclaw/
-├── groups/                      # Per-group conversation data
-│   └── telegram_main/
-│       ├── CLAUDE.md           # Group-specific instructions
-│       ├── logs/               # Container execution logs
-│       └── [user files]        # Files created by agent
-│
-├── data/
-│   ├── env/
-│   │   └── env                 # Environment vars for containers
-│   ├── sessions/
-│   │   └── telegram_main/
-│   │       ├── .claude/        # Claude Code session data
-│   │       └── agent-runner-src/  # Custom agent code (if any)
-│   └── ipc/
-│       └── telegram_main/
-│           ├── messages/       # IPC message queue
-│           ├── tasks/          # Scheduled tasks
-│           └── input/          # Runtime input
-│
-├── store/
-│   └── nanoclaw.db            # SQLite database
-│
-└── logs/
-    └── setup.log              # Setup/registration logs
+/root/.nanobot/
+├── config.json                  # Main configuration
+├── system-prompt.md             # Agent personality and instructions
+├── tools/
+│   ├── linkedin.sh              # LinkedIn integration
+│   ├── twenty_crm.sh            # Twenty CRM integration
+│   └── [custom tools]           # Additional bash tools
+├── sessions/                    # Conversation sessions
+├── media/                       # Media files
+├── cron/                        # Scheduled tasks
+└── workspace/                   # Agent workspace
+
+/mnt/gdrive/                     # Google Drive mount
+├── backups/
+│   └── twenty-crm/              # CRM database backups
+└── [workspace files]            # Agent-created files
+
+/etc/systemd/system/
+└── nanobot.service              # Systemd service definition
 ```
 
 ## Message Flow
@@ -159,184 +176,207 @@ ANTHROPIC_API_KEY=placeholder
 
 ```
 1. Telegram Bot API
-   ↓ (webhook/polling)
-2. Telegram Channel Handler (telegram.ts)
-   ↓ (store message)
-3. SQLite Database
-   ↓ (queue message)
-4. Main Orchestrator (index.ts)
-   ↓ (spawn container)
-5. Docker Container
-   ↓ (run agent)
-6. Agent Runner (container/agent-runner)
-   ↓ (query Claude)
-7. Credential Proxy → Anthropic API
-   ↓ (stream response)
-8. Agent Runner
-   ↓ (return result)
-9. Main Orchestrator
-   ↓ (send message)
-10. Telegram Channel Handler
-    ↓ (API call)
-11. Telegram Bot API
-    ↓
-12. User receives message
+   ↓ (long polling)
+2. Nanobot Gateway (Telegram Channel)
+   ↓ (process message)
+3. Agent Loop
+   ↓ (load session)
+4. System Prompt + Message Context
+   ↓ (prepare query)
+5. LLM Provider (Gemini 2.5 Flash)
+   ↓ (generate response with tool calls)
+6. Tool Execution (bash scripts)
+   ↓ (execute if needed)
+7. Response Generation
+   ↓ (format response)
+8. Nanobot Gateway
+   ↓ (send to Telegram)
+9. Telegram Bot API
+   ↓
+10. User receives message
 ```
 
-### Container Execution Flow
+### Tool Execution Flow
 
 ```
 ┌─────────────────────────────────────┐
-│  Main Process (host)                │
+│  Nanobot Gateway                    │
 │                                     │
 │  1. Receive message                 │
-│  2. Create container input JSON     │
-│  3. docker run -i nanoclaw-agent    │
+│  2. Load session history            │
+│  3. Prepare context + system prompt │
 └──────────────┬──────────────────────┘
-               │ (stdin: JSON input)
+               │
                ▼
 ┌─────────────────────────────────────┐
-│  Container (isolated)               │
+│  LLM Provider (Gemini)              │
 │                                     │
-│  1. Read JSON from stdin            │
-│  2. Initialize Claude Code SDK      │
-│  3. Load conversation session       │
-│  4. Execute query with tools        │
-│  5. Stream results to stdout        │
-│  6. Wait for IPC messages           │
-│  7. Handle follow-up queries        │
-│  8. Exit on _close sentinel         │
+│  1. Process query with context      │
+│  2. Determine if tools needed       │
+│  3. Generate tool calls             │
 └──────────────┬──────────────────────┘
-               │ (stdout: JSON results)
+               │
                ▼
 ┌─────────────────────────────────────┐
-│  Main Process (host)                │
+│  Tool Execution                     │
 │                                     │
-│  1. Parse result JSON               │
-│  2. Send to channel                 │
-│  3. Update session ID               │
-│  4. Keep container alive (30min)    │
+│  1. Execute bash script             │
+│  2. Capture output                  │
+│  3. Return results to LLM           │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Response Generation                │
+│                                     │
+│  1. LLM processes tool results      │
+│  2. Generate final response         │
+│  3. Save to session                 │
+│  4. Send to Telegram                │
 └─────────────────────────────────────┘
 ```
 
 ## Security Model
 
-### Container Isolation
+### Tool Sandboxing
 
-**Process Isolation**:
-- Each conversation runs in separate container
-- No shared memory between containers
-- Process namespace isolation
+**Bash Script Execution**:
+- Tools run as bash scripts in `/root/.nanobot/tools/`
+- No direct LLM access to API keys
+- API keys embedded in tool scripts (not exposed to model)
+- Tool output sanitized before returning to LLM
 
-**Filesystem Isolation**:
-- Project root mounted read-only
-- Group folder mounted read-write (isolated per group)
-- No access to other groups' data
-- Temporary files in ephemeral container storage
+**CRM Access Control**:
+- Delete operations require explicit user confirmation
+- Data validation before create/update operations
+- CRM data restricted to private chat only
+- No CRM access in group chats
 
-**Network Isolation**:
-- Containers can access internet (for web search, etc.)
-- No direct access to host network
-- API calls proxied through credential proxy
-
-**User Isolation**:
-- Containers run as `node` user (UID 1000)
-- Not root inside container
-- Limited privileges
+**LinkedIn Integration**:
+- Message/connection requests require confirmation
+- Rate limiting enforced by API
+- Profile lookups don't require confirmation
 
 ### Credential Security
 
 **API Key Protection**:
-- Real API key only in host `.env` file
-- Never passed to containers
-- Credential proxy injects key at request time
-- Containers use placeholder + proxy URL
+- Gemini API key in `/root/.nanobot/config.json`
+- Groq API key in `/root/.nanobot/config.json`
+- Twenty CRM API key in `/root/.nanobot/tools/twenty_crm.sh`
+- LinkedIn API keys in `/root/.nanobot/tools/linkedin.sh`
+- Keys never exposed to LLM context
 
 **Token Security**:
-- Telegram bot token only in host `.env`
-- Not accessible from containers
-- Channel handlers run in main process (trusted)
+- Telegram bot token in config.json
+- Config file readable only by root
+- No token exposure in logs or responses
 
-### Mount Security
+### Workspace Security
 
-**Allowlist System**:
-- External mounts require explicit allowlist
-- Default blocked patterns (e.g., `/etc`, `/root`)
-- Project root always read-only
-- Group folder scoped to specific group
+**Google Drive Mount**:
+- Mounted at `/mnt/gdrive`
+- Agent workspace configured to use gdrive
+- Automatic backups stored in `/mnt/gdrive/backups/`
+- Read/write access for agent operations
 
 ## Performance Characteristics
 
 ### Resource Usage
 
-**Main Process**:
-- Memory: ~100-120 MB
-- CPU: Low (event-driven)
-- Disk I/O: Minimal (SQLite operations)
+**Nanobot Gateway**:
+- Memory: ~140 MB (peak: 141 MB)
+- CPU: Low to medium (depends on LLM calls)
+- Disk I/O: Minimal (session storage)
 
-**Per Container**:
-- Memory: ~200-500 MB (varies with conversation length)
-- CPU: Medium during query execution
-- Disk I/O: Moderate (file operations)
+**Twenty CRM**:
+- Memory: ~1.4 GB (Docker containers)
+- CPU: Low (idle), medium (during queries)
+- Disk I/O: Moderate (PostgreSQL operations)
 
-**Recommended Droplet**:
-- 2GB RAM: 2-3 concurrent conversations
-- 4GB RAM: 5-8 concurrent conversations
-- 8GB RAM: 10+ concurrent conversations
+**Current Droplet (8GB RAM)**:
+- Total memory used: ~1.4 GB
+- Available memory: ~6.4 GB
+- Plenty of headroom for concurrent operations
 
 ### Latency
 
 **Message Processing**:
 - Telegram receive: <1 second
-- Container spawn: 1-3 seconds (first message)
-- Container reuse: <500ms (follow-up messages)
-- Claude API: 2-10 seconds (varies with complexity)
+- Session load: <100ms
+- Gemini API: 1-3 seconds (fast model)
+- Tool execution: 0.5-2 seconds (varies by tool)
 - Response send: <1 second
 
 **Total Response Time**:
-- First message: 5-15 seconds
-- Follow-up messages: 3-12 seconds
+- Simple queries: 2-5 seconds
+- With tool calls: 3-8 seconds
+- Complex multi-tool: 5-15 seconds
 
 ### Scalability
 
 **Concurrent Conversations**:
-- Configurable via `MAX_CONCURRENT_CONTAINERS`
-- Default: 5 concurrent containers
-- Queue system for overflow
+- Single-threaded Python process
+- Handles multiple Telegram users
+- Session-based conversation tracking
+- No container overhead
 
-**Message Queue**:
-- Per-group message queue
-- FIFO processing
-- Automatic retry with exponential backoff
+**Message Processing**:
+- Asynchronous message handling
+- Session persistence across restarts
+- Memory window: 50 messages per conversation
 
 ## Configuration
 
-### Environment Variables
+### Configuration File
 
-**Required**:
-- `ANTHROPIC_API_KEY` - Anthropic API key
-- `ASSISTANT_NAME` - Bot's name (e.g., "Tim")
-- `TELEGRAM_BOT_TOKEN` - Telegram bot token
+**Location**: `/root/.nanobot/config.json`
 
-**Optional**:
-- `CONTAINER_IMAGE` - Docker image name (default: `nanoclaw-agent:latest`)
-- `CONTAINER_TIMEOUT` - Max container runtime in ms (default: 1800000 = 30min)
-- `CREDENTIAL_PROXY_PORT` - Proxy port (default: 3001)
-- `MAX_CONCURRENT_CONTAINERS` - Max concurrent containers (default: 5)
-- `IDLE_TIMEOUT` - Container idle timeout in ms (default: 1800000 = 30min)
-- `TZ` - Timezone for scheduled tasks (default: system timezone)
+**Structure**:
+```json
+{
+  "providers": {
+    "groq": { "apiKey": "..." },
+    "gemini": { "apiKey": "..." }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gemini/gemini-2.5-flash",
+      "maxTokens": 4096,
+      "temperature": 0.7,
+      "maxToolIterations": 20,
+      "memoryWindow": 50,
+      "workspace": "/mnt/gdrive"
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "apiKey": "...",
+        "maxResults": 5
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "...",
+      "allowFrom": ["*"]
+    }
+  }
+}
+```
 
-### Runtime Configuration
+### System Prompt
 
-**Trigger Pattern**:
-- Regex: `^@{ASSISTANT_NAME}\b` (case-insensitive)
-- Main chat: No trigger required (`requiresTrigger: false`)
-- Other chats: Require trigger unless configured otherwise
+**Location**: `/root/.nanobot/system-prompt.md`
 
-**Conversation Persistence**:
-- Session IDs stored in database
-- Conversation history in Claude Code session
-- Resume from last message on container restart
+**Contains**:
+- Agent personality (Tim)
+- Role-based access control
+- Writing style guidelines
+- Tool usage instructions
+- CRM integration rules
+- LinkedIn integration rules
 
 ## Monitoring and Observability
 
@@ -344,80 +384,81 @@ ANTHROPIC_API_KEY=placeholder
 
 **Systemd Journal**:
 ```bash
-journalctl -u nanoclaw -f
+journalctl -u nanobot -f
 ```
 
 **Log Levels**:
-- INFO: Normal operations
-- WARN: Recoverable errors
+- INFO: Normal operations (agent loop, heartbeat)
+- DEBUG: Detailed execution info
+- WARNING: Non-critical issues
 - ERROR: Failures requiring attention
-- FATAL: Critical failures
 
 **Key Log Events**:
-- Channel connections/disconnections
-- Message received/sent
-- Container spawn/exit
-- API errors
-- Database operations
+- Telegram bot connected
+- Agent loop started
+- Heartbeat checks (every 1800s)
+- Cron service status
+- Channel start/stop
 
 ### Metrics
 
 **Available via Logs**:
-- Message count per group
-- Container execution time
-- API response time
-- Error rates
-- Session count
+- Message processing times
+- Tool execution duration
+- LLM API response times
+- Session activity
+- Memory usage
 
 ### Health Checks
 
 **Service Status**:
 ```bash
-systemctl status nanoclaw
+systemctl status nanobot
 ```
 
-**Channel Status**:
-- Check logs for "connected" messages
+**Bot Status**:
+- Check logs for "Telegram bot @timx509_bot connected"
 - Send test message to bot
+- Verify response time
 
-**Database Status**:
+**CRM Status**:
 ```bash
-sqlite3 /opt/nanoclaw/store/nanoclaw.db "SELECT COUNT(*) FROM groups;"
+curl -s http://localhost:3000/healthz
 ```
 
-## Deployment Patterns
+## Deployment Pattern
 
 ### Single Instance (Current)
 
-- One droplet, one NanoClaw instance
-- All channels on same instance
+- One droplet, one Nanobot instance
+- Telegram channel only
+- Twenty CRM co-located on same server
 - Simple, cost-effective
-- Limited by single server resources
-
-### Future: Multi-Instance
-
-- Multiple droplets with load balancer
-- Shared database (PostgreSQL)
-- Distributed container execution
-- Higher availability and scalability
+- 8GB RAM provides ample resources
 
 ## Technology Stack
 
 **Runtime**:
-- Node.js 20.x
-- TypeScript
-- Docker 29.x
+- Python 3.12
+- Nanobot AI framework (pipx installed)
+- Docker 29.x (for Twenty CRM)
 
-**Libraries**:
-- `grammy` - Telegram bot framework
-- `@anthropic-ai/claude-code` - Claude Code SDK
-- `better-sqlite3` - SQLite database
-- `pino` - Logging
+**LLM Providers**:
+- Google AI (Gemini 2.5 Flash)
+- Groq (Llama 3.1 70B - backup)
+
+**Integrations**:
+- Telegram Bot API (python-telegram-bot)
+- Twenty CRM (REST/GraphQL API)
+- ConnectSafely API (LinkedIn)
+- Brave Search API (web search)
+- Summarize CLI (content extraction)
 
 **Infrastructure**:
-- Ubuntu 24.04 LTS
+- Ubuntu 24.04 LTS (8GB RAM droplet)
 - Systemd (service management)
-- Docker (container runtime)
+- Docker (Twenty CRM containers)
+- Google Drive (mounted at /mnt/gdrive)
 
 ## Extension Points
 
