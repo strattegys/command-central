@@ -88,10 +88,20 @@ is_connection_request() {
     local message_text="$1"
     local sender_name="$2"
     
-    # Check for connection request patterns
+    # Check for GMoney's connection request pattern
     if [[ "$message_text" == *"as a Business Content Artist, I'm looking to help B2B SaaS and tech brands turn complex concepts into authentic, creative narratives"* ]] && [[ "$message_text" == *"I'm looking to connect with innovative marketing leaders like you"* ]]; then
         # This is a connection request sent by GMoney
         # The API incorrectly reports it as if recipient sent to themselves
+        return 0
+    fi
+    
+    # Check for connection acceptance pattern (from Noé example)
+    if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
+        return 0
+    fi
+    
+    # Check for generic connection request pattern (like sarath's message)
+    if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"I enjoy networking with"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
         return 0
     fi
     
@@ -442,7 +452,7 @@ find_contact_by_linkedin_url() {
                 # Convert timestamp to Pacific Time
                 PT_TIMESTAMP=$(TZ="America/Los_Angeles" date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %I:%M %p PT")
                 # Include more message content (500 chars) and PT time in alert
-                send_alert "🔔 ${PT_TIMESTAMP} - New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:500}... [${SENDER_PROFILE_URL}]"
+                send_alert "🔔 ${PT_TIMESTAMP} - ${SENDER_NAME}: ${MESSAGE_TEXT:0:500}... [${SENDER_PROFILE_URL}]"
             else
                 echo "Failed to create note for message from ${SENDER_NAME}" >&2
             fi
