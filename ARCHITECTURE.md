@@ -462,80 +462,113 @@ curl -s http://localhost:3000/healthz
 
 ## Extension Points
 
+### Adding New Tools
+
+1. Create bash script in `/root/.nanobot/tools/`
+2. Make executable: `chmod +x /root/.nanobot/tools/your_tool.sh`
+3. Document usage in system prompt
+4. Test tool execution
+5. Restart Nanobot service
+
 ### Adding New Channels
 
-1. Create channel handler in `src/channels/`
-2. Implement `Channel` interface
-3. Call `registerChannel()` in module
-4. Add channel-specific dependencies
-5. Rebuild and restart
+1. Update `/root/.nanobot/config.json`
+2. Add channel configuration under `channels` section
+3. Provide required credentials (tokens, API keys)
+4. Restart Nanobot service
+5. Verify channel connection in logs
 
-### Custom Skills
+### Switching LLM Providers
 
-1. Create skill in `.claude/skills/`
-2. Define skill metadata (SKILL.md)
-3. Implement skill logic
-4. Use via Claude Code CLI or manual integration
+1. Add provider credentials to `config.json` under `providers`
+2. Update `agents.defaults.model` to desired model
+3. Restart Nanobot service
+4. Test with simple query
 
-### Custom Tools
+### Custom System Prompts
 
-1. Add tool to agent runner allowed tools list
-2. Implement tool handler if needed
-3. Rebuild container image
-
-### MCP Servers
-
-1. Create MCP server in `src/`
-2. Register in agent runner `mcpServers` config
-3. Expose via IPC or stdio
+1. Edit `/root/.nanobot/system-prompt.md`
+2. Add new instructions, rules, or capabilities
+3. Restart Nanobot to reload prompt
+4. Test behavior changes
 
 ## Troubleshooting Architecture
 
-### Container Issues
+### Service Issues
 
-**Symptom**: Container exits immediately
+**Symptom**: Nanobot service won't start
 
 **Debug**:
 ```bash
-# Check container logs
-ls -la /opt/nanoclaw/groups/telegram_main/logs/
-cat /opt/nanoclaw/groups/telegram_main/logs/container-*.log
+# Check service status
+systemctl status nanobot
 
-# Check Docker
-docker ps -a
-docker logs <container_id>
+# View recent logs
+journalctl -u nanobot -n 50 --no-pager
+
+# Check config file syntax
+cat /root/.nanobot/config.json | jq .
 ```
 
-### Database Issues
+### Session Issues
 
-**Symptom**: Messages not persisting
+**Symptom**: Bot doesn't remember conversation
 
 **Debug**:
 ```bash
-# Check database
-sqlite3 /opt/nanoclaw/store/nanoclaw.db
-.tables
-SELECT * FROM messages ORDER BY timestamp DESC LIMIT 10;
+# Check session files
+ls -la /root/.nanobot/sessions/
+
+# Verify memory window setting
+cat /root/.nanobot/config.json | jq '.agents.defaults.memoryWindow'
 ```
 
-### Network Issues
+### Tool Execution Issues
 
-**Symptom**: API calls failing
+**Symptom**: Tools not working or returning errors
 
 **Debug**:
 ```bash
-# Test credential proxy
-curl http://localhost:3001/v1/messages
+# Test tool manually
+bash /root/.nanobot/tools/twenty_crm.sh list-contacts
 
-# Test Anthropic API
-curl https://api.anthropic.com/v1/messages \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -H "anthropic-version: 2023-06-01"
+# Check tool permissions
+ls -la /root/.nanobot/tools/
+
+# View tool output in logs
+journalctl -u nanobot | grep -A5 "tool"
+```
+
+### CRM Integration Issues
+
+**Symptom**: CRM operations failing
+
+**Debug**:
+```bash
+# Test CRM API directly
+curl -s http://localhost:3000/healthz
+
+# Check CRM containers
+cd /opt/twenty-crm/twenty && docker compose ps
+
+# Test API authentication
+curl -s -X GET "http://localhost:3000/rest/people" \
+  -H "Authorization: Bearer YOUR_API_KEY" | jq .
 ```
 
 ## References
 
-- [NanoClaw Source](https://github.com/qwibitai/nanoclaw)
-- [Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code)
+- [Nanobot GitHub](https://github.com/nanobot-ai/nanobot)
+- [Nanobot Documentation](https://www.nanobot.ai/)
+- [Twenty CRM Documentation](https://docs.twenty.com/)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
-- [Docker Documentation](https://docs.docker.com/)
+- [Google AI Documentation](https://ai.google.dev/)
+- [Groq Documentation](https://console.groq.com/docs)
+
+## Migration History
+
+**March 2026**: Migrated from NanoClaw to Nanobot
+- Reason: Cost reduction and performance improvement
+- Previous: NanoClaw (Node.js + Docker + Claude)
+- Current: Nanobot (Python + Gemini)
+- See `NANOCLAW_DEPRECATED.md` for details
