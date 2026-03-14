@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Prevent nanobot from auto-detecting Anthropic and using assistant prefill
+# (Claude 4.6 removed prefill support, causing 400 errors)
+unset ANTHROPIC_API_KEY
+
 CONFIG_FILE="/root/.nanobot/config.json"
 
 # Substitute environment variables in config.json
