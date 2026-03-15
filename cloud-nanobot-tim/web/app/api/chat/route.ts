@@ -4,9 +4,7 @@ import { chat } from "@/lib/gemini";
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const userId = session?.user?.email || "default-user";
 
   try {
     const { message } = await request.json();
@@ -17,7 +15,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const reply = await chat(session.user.email, message);
+    const reply = await chat(userId, message);
     return NextResponse.json({ reply });
   } catch (error: unknown) {
     console.error("Chat error:", error);

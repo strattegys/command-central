@@ -18,14 +18,14 @@ export default async function LoginPage() {
         <form
           action={async () => {
             "use server";
-            await signIn("google", { redirectTo: "/chat" });
+            await signIn("credentials", { redirectTo: "/chat" });
           }}
         >
           <button
             type="submit"
             className="bg-[#2b5278] hover:bg-[#3a6a96] text-[#f5f5f5] text-[13px] px-6 py-2.5 rounded-lg transition-colors"
           >
-            Sign in with Google
+            Enter Chat
           </button>
         </form>
       </div>
