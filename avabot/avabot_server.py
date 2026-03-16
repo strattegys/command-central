@@ -20,7 +20,7 @@ import litellm
 # ── Config ────────────────────────────────────────────────────────────────────
 PASSPHRASE_AVA   = os.environ.get("AVA_PASSPHRASE", "6767")
 PASSPHRASE_GUEST = os.environ.get("GUEST_PASSPHRASE", "LOVE")
-GEMINI_KEY       = os.environ.get("GEMINI_API_KEY", "AIzaSyBnvMRkvOy5NM82WMEdfrKY_xrMjCLMbuc")
+GEMINI_KEY       = os.environ["GEMINI_API_KEY"]
 MODEL            = "gemini/gemini-3.1-flash-lite-preview"
 PORT             = 18792
 SESSION_TTL      = 3600 * 8  # 8-hour sessions

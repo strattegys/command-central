@@ -16,7 +16,7 @@ print("Imports OK", flush=True)
 
 # Set env vars for local dev
 os.environ.setdefault("AVABOT_DIR",     os.path.join(os.path.dirname(os.path.abspath(__file__)), "avabot_local"))
-os.environ.setdefault("GEMINI_API_KEY", "AIzaSyBnvMRkvOy5NM82WMEdfrKY_xrMjCLMbuc")
+# GEMINI_API_KEY must be set in the environment
 
 # Run the server
 import runpy
