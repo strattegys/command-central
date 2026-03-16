@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "--port", "3000"],
+      "port": 3000,
+      "cwd": "web"
+    },
+    {
+      "name": "avabot",
+      "runtimeExecutable": ".venv/Scripts/pythonw",
+      "runtimeArgs": ["avabot/avabot_server.py"],
+      "env": {
+        "AVABOT_DIR": "C:/Users/USER1/CascadeProjects/apps/agent-tim/avabot_local",
+        "GEMINI_API_KEY": "${env:GEMINI_API_KEY}",
+        "PYTHONPATH": ""
+      },
+      "port": 18792
+    }
+  ]
+}

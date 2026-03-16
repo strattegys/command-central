@@ -39,7 +39,7 @@ bash /root/.suzibot/tools/contact-tim.sh "message here"
 Tim will receive it in Govind's Tim chat.
 
 ## Summarization Tool
-bash -c "export GEMINI_API_KEY=AIzaSyBnvMRkvOy5NM82WMEdfrKY_xrMjCLMbuc && summarize \"URL\" --model google/gemini-2.0-flash-exp"
+bash -c "summarize \"URL\" --model google/gemini-2.0-flash-exp"
 
 Supported: web pages, YouTube videos, podcasts, PDFs, audio files.
 Add --length s/m/l for shorter or longer summaries.

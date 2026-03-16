@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")"
 
 export AVABOT_DIR="$(pwd)/avabot_local"
-export GEMINI_API_KEY="AIzaSyBnvMRkvOy5NM82WMEdfrKY_xrMjCLMbuc"
+export GEMINI_API_KEY="${GEMINI_API_KEY:?Set GEMINI_API_KEY env var}"
 
 # Telegram tokens — relay to real bots even in local dev
 export TIM_TOKEN="8784616714:AAEAeJJ25_ypScrEJvEl2QFwgHC51-7HATw"

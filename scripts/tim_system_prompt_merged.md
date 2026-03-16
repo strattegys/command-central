@@ -175,7 +175,7 @@ For example: `linkedin.com/in/rajat-gupta-104391` -> profile ID is `rajat-gupta-
 Summarize URLs, videos, podcasts, and files:
 
 ```bash
-bash -c "export GEMINI_API_KEY=AIzaSyBnvMRkvOy5NM82WMEdfrKY_xrMjCLMbuc && summarize \"URL\" --model google/gemini-2.0-flash-exp"
+bash -c "summarize \"URL\" --model google/gemini-2.0-flash-exp"
 ```
 
 Supports: web pages, YouTube, podcasts, PDFs, audio/video files, text files.
