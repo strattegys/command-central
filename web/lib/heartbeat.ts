@@ -2,8 +2,8 @@ import { readFileSync, existsSync, appendFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
 import { readMemory } from "./memory";
-import { addMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
+import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from "./tasks";
 
 /**
  * Heartbeat System — Autonomous Agent Task Checking
@@ -56,19 +56,6 @@ function writeNotification(title: string, message: string): void {
     appendFileSync(NOTIFICATIONS_FILE, entry + "\n");
   } catch (error) {
     console.error("[heartbeat] Failed to write notification:", error);
-  }
-}
-
-function writeChatMessage(agentId: string, text: string): void {
-  try {
-    const config = getAgentConfig(agentId);
-    addMessage(config.sessionFile, {
-      role: "model",
-      text,
-      timestamp: Date.now(),
-    });
-  } catch (error) {
-    console.error("[heartbeat] Failed to write chat message:", error);
   }
 }
 
@@ -380,11 +367,74 @@ function checkCampaignHealth(): HeartbeatFinding[] {
 }
 
 /**
+ * Check 5: Completed delegated tasks
+ *
+ * Looks for tasks that Tim delegated to other agents (e.g., scout)
+ * that have been completed and not yet acknowledged.
+ */
+function checkCompletedTasks(): HeartbeatFinding[] {
+  const findings: HeartbeatFinding[] = [];
+
+  try {
+    const completed = getCompletedTasks("tim");
+    for (const task of completed) {
+      const resultPreview = task.result
+        ? task.result.length > 200
+          ? task.result.slice(0, 200) + "..."
+          : task.result
+        : "No result returned";
+
+      findings.push({
+        category: "delegation",
+        title: `Research Complete: ${task.task.slice(0, 60)}`,
+        detail: resultPreview,
+        priority: "high",
+      });
+
+      // Mark as acknowledged so it's not re-processed
+      acknowledgeTask(task.id);
+    }
+  } catch (error) {
+    console.error("[heartbeat] Delegation check error:", error);
+  }
+
+  return findings;
+}
+
+/**
+ * Build the autonomous prompt from findings for LLM execution.
+ */
+function buildAutonomousPrompt(findings: HeartbeatFinding[]): string {
+  const findingLines = findings.map(
+    (f) => `- [${f.priority.toUpperCase()}] ${f.title}: ${f.detail.split("\n")[0]}`
+  );
+
+  return `[AUTONOMOUS HEARTBEAT]
+
+Your heartbeat system detected the following action items:
+
+${findingLines.join("\n")}
+
+Review each finding and take helpful actions:
+- Check CRM for relevant context on any people or companies mentioned (use twenty_crm tool)
+- Save important observations to memory for future reference
+- Draft follow-up messages but do NOT send them — present them for user approval
+- Update CRM notes if you find relevant context
+
+IMPORTANT: Do NOT send any LinkedIn messages or connection requests. Do NOT schedule any messages. Only draft them and present for user approval.
+
+Summarize what you found, what actions you took, and recommend next steps.`;
+}
+
+/**
  * Main heartbeat runner for Tim.
  * Runs all checks, deduplicates, and delivers findings.
- * Returns findings for API inspection.
+ * When detectOnly=true, returns findings without LLM execution.
+ * When detectOnly=false (default), runs autonomous LLM execution with tools.
  */
-export async function runTimHeartbeat(): Promise<HeartbeatFinding[]> {
+export async function runTimHeartbeat(
+  detectOnly = false
+): Promise<HeartbeatFinding[]> {
   console.log("[heartbeat] Tim heartbeat starting...");
 
   const allFindings: HeartbeatFinding[] = [
@@ -392,6 +442,7 @@ export async function runTimHeartbeat(): Promise<HeartbeatFinding[]> {
     ...checkReminders(),
     ...checkScheduledMessages(),
     ...checkCampaignHealth(),
+    ...checkCompletedTasks(),
   ];
 
   if (allFindings.length === 0) {
@@ -424,38 +475,46 @@ export async function runTimHeartbeat(): Promise<HeartbeatFinding[]> {
     markNotified(f.category);
   }
 
-  // Build notification message
-  const notifLines = newFindings.map(
-    (f) => `[${f.priority.toUpperCase()}] ${f.title}: ${f.detail.split("\n")[0]}`
-  );
-
-  // Write to notification bell
-  writeNotification(
-    `Tim Heartbeat — ${newFindings.length} item(s)`,
-    notifLines.join(" | ")
-  );
-
-  // Build chat message
-  const chatLines = ["**Autonomous Check-in**\n"];
-  for (const f of newFindings) {
-    const icon =
-      f.category === "linkedin"
-        ? "LinkedIn"
-        : f.category === "reminder"
-        ? "Reminder"
-        : f.category === "schedule"
-        ? "Schedule"
-        : "Campaign";
-    chatLines.push(`**${icon}: ${f.title}**`);
-    chatLines.push(f.detail);
-    chatLines.push("");
+  if (detectOnly) {
+    console.log("[heartbeat] Detect-only mode — skipping LLM execution");
+    return allFindings;
   }
-  chatLines.push(
-    "_This is an automated check-in. Reply to take action on any of these items._"
-  );
 
-  // Write to Tim's chat session
-  writeChatMessage("tim", chatLines.join("\n"));
+  // Phase 2: Autonomous LLM execution
+  // Tim reasons about findings using his full tool set
+  console.log("[heartbeat] Starting autonomous LLM execution...");
+
+  try {
+    const { autonomousChat } = await import("./gemini");
+    const prompt = buildAutonomousPrompt(newFindings);
+    const response = await autonomousChat("tim", prompt);
+
+    if (response) {
+      console.log("[heartbeat] Autonomous execution complete, response saved to session");
+
+      // Write summary to notification bell
+      const summaryLine = response.length > 200
+        ? response.slice(0, 200) + "..."
+        : response;
+      writeNotification(
+        `Tim Heartbeat — ${newFindings.length} item(s) actioned`,
+        summaryLine
+      );
+    } else {
+      console.log("[heartbeat] Autonomous execution returned empty response");
+    }
+  } catch (error) {
+    console.error("[heartbeat] Autonomous execution failed:", error);
+
+    // Fallback: write static notification so findings aren't lost
+    const notifLines = newFindings.map(
+      (f) => `[${f.priority.toUpperCase()}] ${f.title}: ${f.detail.split("\n")[0]}`
+    );
+    writeNotification(
+      `Tim Heartbeat — ${newFindings.length} item(s)`,
+      notifLines.join(" | ")
+    );
+  }
 
   return allFindings;
 }
@@ -466,4 +525,56 @@ export async function runTimHeartbeat(): Promise<HeartbeatFinding[]> {
  */
 export async function runSimpleHeartbeat(agentId: string): Promise<void> {
   console.log(`[heartbeat] ${agentId} heartbeat OK`);
+}
+
+/**
+ * Scout agent heartbeat.
+ * Picks up pending tasks delegated from other agents,
+ * processes them via autonomousChat, and writes results back.
+ */
+export async function runScoutHeartbeat(): Promise<void> {
+  const pending = getPendingTasks("scout");
+
+  if (pending.length === 0) {
+    console.log("[heartbeat] Scout OK — no pending tasks");
+    return;
+  }
+
+  console.log(
+    `[heartbeat] Scout processing ${pending.length} task(s)`
+  );
+
+  const { autonomousChat } = await import("./gemini");
+
+  for (const task of pending) {
+    try {
+      updateTask(task.id, { status: "in_progress" });
+      console.log(`[heartbeat] Scout working on: ${task.task.slice(0, 80)}`);
+
+      const result = await autonomousChat("scout", task.task);
+
+      updateTask(task.id, {
+        status: "completed",
+        result: result || "Scout completed but returned no findings.",
+        completedAt: new Date().toISOString(),
+      });
+
+      console.log(`[heartbeat] Scout completed task ${task.id}`);
+
+      // Notify the requesting agent
+      writeNotification(
+        `Scout Complete for ${task.from}`,
+        `Task: ${task.task.slice(0, 100)}...`
+      );
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[heartbeat] Scout task ${task.id} failed:`, errMsg);
+
+      updateTask(task.id, {
+        status: "failed",
+        result: `Error: ${errMsg}`,
+        completedAt: new Date().toISOString(),
+      });
+    }
+  }
 }

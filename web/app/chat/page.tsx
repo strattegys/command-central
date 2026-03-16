@@ -53,6 +53,19 @@ const AGENTS: AgentConfig[] = [
     capabilities: ["Web search", "Summaries", "Relay messages", "Message Susan"],
     connections: [{ label: "Web search", connected: true }],
   },
+  {
+    id: "scout",
+    name: "Scout",
+    role: "Intelligence & Research",
+    color: "#2563EB",
+    avatar: "/scout-avatar.svg",
+    online: true,
+    capabilities: ["Web research", "Company intel", "Contact discovery", "Market analysis"],
+    connections: [
+      { label: "Web search", connected: true },
+      { label: "CRM", connected: true },
+    ],
+  },
 ];
 
 export default function ChatPage() {

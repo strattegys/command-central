@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import { join } from "path";
 import { readMemory, appendMemoryFact, replaceMemory } from "./memory";
+import { createTask } from "./tasks";
 
 const TOOL_SCRIPTS_PATH =
   process.env.TOOL_SCRIPTS_PATH || join(process.cwd(), "..", ".nanobot", "tools");
@@ -124,6 +125,32 @@ export const toolDeclarations = [
       required: ["command"],
     },
   },
+  {
+    name: "delegate_task",
+    description:
+      "Delegate a task to another agent. Use this when you need research, analysis, or other work done by a specialist agent. The 'scout' agent can do web research, company intel, and contact discovery. Use urgency='sync' to wait for the result immediately, or 'async' to queue it for background processing.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        agent: {
+          type: "string",
+          description:
+            "Target agent ID to delegate to (e.g., 'scout')",
+        },
+        task: {
+          type: "string",
+          description:
+            "Detailed task description. Be specific about what information you need.",
+        },
+        urgency: {
+          type: "string",
+          description:
+            "'sync' to wait for the result now (use when user is waiting), or 'async' to queue for background processing (use for non-urgent research)",
+        },
+      },
+      required: ["agent", "task", "urgency"],
+    },
+  },
 ];
 
 function getToolEnv(): NodeJS.ProcessEnv {
@@ -149,12 +176,12 @@ function hasUserApproval(lastUserMessage: string): boolean {
   return APPROVAL_PHRASES.some((phrase) => lower.includes(phrase));
 }
 
-export function executeTool(
+export async function executeTool(
   name: string,
   args: Record<string, string>,
   lastUserMessage = "",
   agentId = "tim"
-): string {
+): Promise<string> {
   try {
     if (name === "memory") {
       const cmd = args.command;
@@ -245,6 +272,28 @@ export function executeTool(
         { timeout: TOOL_TIMEOUT, encoding: "utf-8" }
       );
       return result;
+    }
+
+    if (name === "delegate_task") {
+      const targetAgent = args.agent;
+      const taskDesc = args.task;
+      const urgency = args.urgency as "sync" | "async";
+
+      if (!targetAgent || !taskDesc) {
+        return "Error: agent and task are required for delegate_task";
+      }
+
+      if (urgency === "sync") {
+        // Synchronous: call the target agent directly and return the result
+        // Dynamic import to avoid circular dependency with gemini.ts
+        const { autonomousChat } = await import("./gemini");
+        const result = await autonomousChat(targetAgent, taskDesc);
+        return result || "The agent completed the task but returned no response.";
+      } else {
+        // Async: queue the task for the target agent's heartbeat to pick up
+        const taskId = createTask(agentId, targetAgent, taskDesc, "async");
+        return `Task queued for ${targetAgent} agent (ID: ${taskId}). The result will be available on your next check-in.`;
+      }
     }
 
     return `Unknown tool: ${name}`;

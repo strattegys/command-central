@@ -216,6 +216,22 @@ export function initCronJobs(): void {
     }
   );
 
+  // Heartbeat: Scout — processes delegated tasks
+  registerJob(
+    {
+      id: "heartbeat-scout",
+      name: "Heartbeat",
+      schedule: "*/10 * * * *",
+      description: "Processes delegated research tasks from other agents",
+      agentId: "scout",
+      enabled: true,
+    },
+    async () => {
+      const { runScoutHeartbeat } = await import("./heartbeat");
+      await runScoutHeartbeat();
+    }
+  );
+
   console.log(`[cron] Registered ${jobRegistry.size} jobs`);
 }
 

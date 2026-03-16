@@ -20,7 +20,7 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
     memoryDir: "/root/.nanobot/memory",
-    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory"],
+    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task"],
     routines: [
       {
         name: "LinkedIn Message Sync",
@@ -56,6 +56,14 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     systemPromptFile: "/root/.avabot/system-prompt.md",
     memoryDir: "/root/.avabot/memory",
     tools: ["web_search", "memory"],
+    routines: [],
+  },
+  scout: {
+    id: "scout",
+    sessionFile: "/root/.scoutbot/sessions/internal.jsonl",
+    systemPromptFile: "/root/.scoutbot/system-prompt.md",
+    memoryDir: "/root/.scoutbot/memory",
+    tools: ["web_search", "twenty_crm", "memory"],
     routines: [],
   },
 };

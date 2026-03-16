@@ -81,20 +81,22 @@ export async function chat(
     if (functionCalls.length > 0) {
       contents.push({ role: "model", parts });
 
-      const functionResponses = functionCalls.map((fc) => {
-        const result = executeTool(
-          fc.functionCall!.name!,
-          (fc.functionCall!.args as Record<string, string>) || {},
-          userMessage,
-          agentId
-        );
-        return {
-          functionResponse: {
-            name: fc.functionCall!.name!,
-            response: { result },
-          },
-        };
-      });
+      const functionResponses = await Promise.all(
+        functionCalls.map(async (fc) => {
+          const result = await executeTool(
+            fc.functionCall!.name!,
+            (fc.functionCall!.args as Record<string, string>) || {},
+            userMessage,
+            agentId
+          );
+          return {
+            functionResponse: {
+              name: fc.functionCall!.name!,
+              response: { result },
+            },
+          };
+        })
+      );
 
       contents.push({
         role: "user",
@@ -129,6 +131,101 @@ export async function chat(
   }
 
   return "I couldn't generate a response. Please try again.";
+}
+
+/**
+ * Autonomous chat: lightweight variant for background tasks (heartbeat, scheduled checks).
+ * - Loads only recent history (default 20 messages) instead of full session
+ * - Does NOT save the trigger prompt as a user message — only saves model response
+ * - Tool safety preserved: passes "[autonomous-heartbeat]" as lastUserMessage
+ *   so send/schedule approval barriers remain active
+ */
+export async function autonomousChat(
+  agentId: string,
+  triggerPrompt: string,
+  options?: { maxHistory?: number }
+): Promise<string> {
+  const ai = getClient();
+  const config = getAgentConfig(agentId);
+  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
+  const history = getHistory(config.sessionFile);
+
+  const maxHistory = options?.maxHistory ?? 20;
+  const recentHistory = history.slice(-maxHistory);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contents: any[] = recentHistory.map((msg: ChatMessage) => ({
+    role: msg.role,
+    parts: [{ text: msg.text }],
+  }));
+  contents.push({ role: "user", parts: [{ text: triggerPrompt }] });
+
+  const tools = buildGeminiTools(config.tools);
+
+  let iterations = 0;
+
+  while (iterations < MAX_TOOL_ITERATIONS) {
+    iterations++;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.7,
+        maxOutputTokens: 4096,
+        tools,
+      },
+    });
+
+    const candidate = response.candidates?.[0];
+    if (!candidate?.content?.parts) break;
+
+    const parts = candidate.content.parts;
+    const functionCalls = parts.filter((p) => p.functionCall);
+
+    if (functionCalls.length > 0) {
+      contents.push({ role: "model", parts });
+
+      const functionResponses = await Promise.all(
+        functionCalls.map(async (fc) => {
+          const result = await executeTool(
+            fc.functionCall!.name!,
+            (fc.functionCall!.args as Record<string, string>) || {},
+            "[autonomous-heartbeat]", // Won't match approval phrases
+            agentId
+          );
+          return {
+            functionResponse: {
+              name: fc.functionCall!.name!,
+              response: { result },
+            },
+          };
+        })
+      );
+
+      contents.push({ role: "user", parts: functionResponses });
+      continue;
+    }
+
+    const textParts = parts.filter((p) => p.text);
+    const replyText = textParts.map((p) => p.text).join("");
+
+    if (replyText) {
+      // Only save the model response — trigger prompt is internal
+      addMessage(config.sessionFile, {
+        role: "model",
+        text: replyText,
+        timestamp: Date.now(),
+      });
+
+      return replyText;
+    }
+
+    break;
+  }
+
+  return "";
 }
 
 /**
@@ -182,20 +279,22 @@ export async function chatStream(
 
     contents.push({ role: "model", parts });
 
-    const functionResponses = functionCalls.map((fc) => {
-      const result = executeTool(
-        fc.functionCall!.name!,
-        (fc.functionCall!.args as Record<string, string>) || {},
-        userMessage,
-        agentId
-      );
-      return {
-        functionResponse: {
-          name: fc.functionCall!.name!,
-          response: { result },
-        },
-      };
-    });
+    const functionResponses = await Promise.all(
+      functionCalls.map(async (fc) => {
+        const result = await executeTool(
+          fc.functionCall!.name!,
+          (fc.functionCall!.args as Record<string, string>) || {},
+          userMessage,
+          agentId
+        );
+        return {
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: { result },
+          },
+        };
+      })
+    );
 
     contents.push({ role: "user", parts: functionResponses });
   }

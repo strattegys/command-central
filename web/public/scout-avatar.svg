@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <!-- Background circle -->
+  <circle cx="60" cy="60" r="60" fill="#2563EB"/>
+
+  <!-- Radar sweep background -->
+  <circle cx="60" cy="60" r="38" stroke="#93C5FD" stroke-width="1" opacity="0.3"/>
+  <circle cx="60" cy="60" r="26" stroke="#93C5FD" stroke-width="1" opacity="0.2"/>
+  <circle cx="60" cy="60" r="14" stroke="#93C5FD" stroke-width="1" opacity="0.15"/>
+
+  <!-- Crosshair lines -->
+  <line x1="60" y1="22" x2="60" y2="98" stroke="#93C5FD" stroke-width="0.8" opacity="0.2"/>
+  <line x1="22" y1="60" x2="98" y2="60" stroke="#93C5FD" stroke-width="0.8" opacity="0.2"/>
+
+  <!-- Magnifying glass handle -->
+  <line x1="74" y1="74" x2="90" y2="90" stroke="white" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Magnifying glass circle -->
+  <circle cx="56" cy="56" r="22" stroke="white" stroke-width="4" fill="none"/>
+
+  <!-- Glass shine -->
+  <circle cx="56" cy="56" r="16" fill="#3B82F6" opacity="0.4"/>
+
+  <!-- Radar blips -->
+  <circle cx="48" cy="46" r="3" fill="#60A5FA" opacity="0.8"/>
+  <circle cx="62" cy="52" r="2" fill="#93C5FD" opacity="0.6"/>
+  <circle cx="52" cy="62" r="2.5" fill="#60A5FA" opacity="0.7"/>
+</svg>
