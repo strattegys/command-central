@@ -20,7 +20,8 @@ interface JournalLine {
 /**
  * Read a JSONL session file and return displayable messages.
  * Skips metadata, tool_call lines, and null content.
- * Only returns unconsolidated messages (after last_consolidated).
+ * Returns ALL messages — consolidation only affects memory extraction,
+ * not chat display.
  */
 export function getHistory(sessionFile: string): ChatMessage[] {
   if (!existsSync(sessionFile)) return [];
@@ -30,14 +31,8 @@ export function getHistory(sessionFile: string): ChatMessage[] {
     const lines = raw.trim().split("\n");
     if (lines.length === 0) return [];
 
-    let startIdx = 0;
-    const firstLine: JournalLine = JSON.parse(lines[0]);
-    if (firstLine._type === "metadata" && firstLine.last_consolidated) {
-      startIdx = firstLine.last_consolidated + 1;
-    }
-
     const messages: ChatMessage[] = [];
-    for (let i = Math.max(1, startIdx); i < lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
       try {
         const entry: JournalLine = JSON.parse(lines[i]);
         if (!entry.role || entry.tool_calls || entry._type) {
