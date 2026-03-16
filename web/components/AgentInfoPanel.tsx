@@ -275,7 +275,7 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
                     Edit
                   </button>
                 </div>
-                <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)] text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap max-h-72 overflow-y-auto leading-relaxed">
+                <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)] text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
                   {promptText || "Loading..."}
                 </div>
               </div>
