@@ -81,7 +81,7 @@ export const toolDeclarations = [
         send_at: {
           type: "string",
           description:
-            "ISO 8601 datetime when to send, e.g. '2026-03-17T10:07:00-04:00'. Use the user's timezone (US Eastern).",
+            "ISO 8601 datetime when to send, e.g. '2026-03-17T10:07:00-07:00'. ALWAYS use US Pacific time (America/Los_Angeles).",
         },
         message_id: {
           type: "string",
