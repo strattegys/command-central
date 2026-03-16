@@ -51,7 +51,7 @@ const AGENTS: AgentConfig[] = [
     avatar: "/suzi-avatar.png",
     online: true,
     capabilities: ["Web search", "Summaries", "Relay messages", "Message Susan"],
-    connections: [{ label: "Web search", connected: true }, { label: "Telegram", connected: true }],
+    connections: [{ label: "Web search", connected: true }],
   },
 ];
 

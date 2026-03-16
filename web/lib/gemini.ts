@@ -3,6 +3,7 @@ import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool } from "./tools";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
+import { consolidateSession } from "./memory";
 
 const MAX_TOOL_ITERATIONS = 20;
 
@@ -41,7 +42,7 @@ export async function chat(
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = getSystemPrompt(config.systemPromptFile);
+  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
   const history = getHistory(config.sessionFile);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,7 +85,8 @@ export async function chat(
         const result = executeTool(
           fc.functionCall!.name!,
           (fc.functionCall!.args as Record<string, string>) || {},
-          userMessage
+          userMessage,
+          agentId
         );
         return {
           functionResponse: {
@@ -116,6 +118,10 @@ export async function chat(
         text: replyText,
         timestamp: Date.now(),
       });
+
+      // Fire-and-forget: consolidate if session is long
+      consolidateSession(agentId, config.sessionFile).catch(() => {});
+
       return replyText;
     }
 
@@ -136,7 +142,7 @@ export async function chatStream(
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = getSystemPrompt(config.systemPromptFile);
+  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
   const history = getHistory(config.sessionFile);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,7 +186,8 @@ export async function chatStream(
       const result = executeTool(
         fc.functionCall!.name!,
         (fc.functionCall!.args as Record<string, string>) || {},
-        userMessage
+        userMessage,
+        agentId
       );
       return {
         functionResponse: {
@@ -221,6 +228,9 @@ export async function chatStream(
       text: fullText,
       timestamp: Date.now(),
     });
+
+    // Fire-and-forget: consolidate if session is long
+    consolidateSession(agentId, config.sessionFile).catch(() => {});
   }
 
   return fullText || "I couldn't generate a response. Please try again.";

@@ -9,6 +9,7 @@ export interface AgentBackendConfig {
   id: string;
   sessionFile: string;
   systemPromptFile: string;
+  memoryDir: string;
   tools: string[];
   routines: Routine[];
 }
@@ -18,7 +19,8 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     id: "tim",
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
-    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search"],
+    memoryDir: "/root/.nanobot/memory",
+    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory"],
     routines: [
       {
         name: "LinkedIn Message Sync",
@@ -44,14 +46,16 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     id: "suzi",
     sessionFile: "/root/.suzibot/workspace/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.suzibot/system-prompt.md",
-    tools: ["web_search"],
+    memoryDir: "/root/.suzibot/memory",
+    tools: ["web_search", "memory"],
     routines: [],
   },
   rainbow: {
     id: "rainbow",
     sessionFile: "/root/.avabot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.avabot/system-prompt.md",
-    tools: ["web_search"],
+    memoryDir: "/root/.avabot/memory",
+    tools: ["web_search", "memory"],
     routines: [],
   },
 };

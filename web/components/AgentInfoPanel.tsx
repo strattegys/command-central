@@ -11,10 +11,23 @@ interface Routine {
   logFile?: string;
 }
 
+interface CronJobStatus {
+  id: string;
+  name: string;
+  schedule: string;
+  description: string;
+  logFile: string | null;
+  agentId: string;
+  enabled: boolean;
+  lastRun: string | null;
+  lastResult: string | null;
+}
+
 interface BackendConfig {
   id: string;
   sessionFile: string;
   systemPromptFile: string;
+  memoryDir?: string;
   tools: string[];
   routines: Routine[];
 }
@@ -29,6 +42,7 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
   const [promptText, setPromptText] = useState("");
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null);
   const [approvalPhrases, setApprovalPhrases] = useState<string[]>([]);
+  const [cronJobs, setCronJobs] = useState<CronJobStatus[]>([]);
 
   useEffect(() => {
     setPromptText("");
@@ -51,6 +65,10 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
     fetch(`/api/agent-config?agent=${agent.id}`)
       .then((res) => res.json())
       .then((data) => { if (data.config) setBackendConfig(data.config); })
+      .catch(() => {});
+    fetch(`/api/cron-status?agent=${agent.id}`)
+      .then((res) => res.json())
+      .then((data) => { if (data.jobs) setCronJobs(data.jobs); })
       .catch(() => {});
   };
 
@@ -190,6 +208,12 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
                       <span className="text-[var(--text-tertiary)] shrink-0 w-24">Prompt file:</span>
                       <span className="text-[var(--accent-green)] break-all">{backendConfig.systemPromptFile}</span>
                     </div>
+                    {backendConfig.memoryDir && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[var(--text-tertiary)] shrink-0 w-24">Memory:</span>
+                        <span className="text-[var(--accent-green)] break-all">{backendConfig.memoryDir}</span>
+                      </div>
+                    )}
                     <div className="flex items-start gap-2">
                       <span className="text-[var(--text-tertiary)] shrink-0 w-24">Tools:</span>
                       <div className="flex flex-wrap gap-1">
@@ -237,10 +261,54 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
                 </div>
               </div>
 
-              {/* Routines */}
+              {/* Routines / Cron Jobs (live status) */}
               <div>
                 <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Routines / Cron Jobs</div>
-                {backendConfig?.routines && backendConfig.routines.length > 0 ? (
+                {cronJobs.length > 0 ? (
+                  <div className="space-y-2">
+                    {cronJobs.map((job) => (
+                      <div key={job.id} className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{
+                                background: !job.lastRun
+                                  ? "#888"
+                                  : job.lastResult === "success"
+                                  ? "#1D9E75"
+                                  : "#E54D2E",
+                              }}
+                              title={job.lastResult || "Not yet run"}
+                            />
+                            <span className="text-xs font-medium text-[var(--text-primary)]">{job.name}</span>
+                          </div>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--accent-blue)]">
+                            {job.schedule}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[var(--text-secondary)] mb-1">{job.description}</div>
+                        <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
+                          <span>
+                            {job.lastRun
+                              ? `Last run: ${new Date(job.lastRun).toLocaleString("en-US", { timeZone: "America/Los_Angeles", dateStyle: "short", timeStyle: "short" })}`
+                              : "Not yet run"}
+                          </span>
+                          {job.logFile && (
+                            <span className="font-mono truncate ml-2">
+                              {job.logFile.split("/").pop()}
+                            </span>
+                          )}
+                        </div>
+                        {job.lastResult && job.lastResult !== "success" && (
+                          <div className="text-[10px] text-[#E54D2E] mt-1 font-mono truncate">
+                            {job.lastResult}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : backendConfig?.routines && backendConfig.routines.length > 0 ? (
                   <div className="space-y-2">
                     {backendConfig.routines.map((r) => (
                       <div key={r.name} className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
@@ -248,12 +316,7 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
                           <span className="text-xs font-medium text-[var(--text-primary)]">{r.name}</span>
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--accent-blue)]">{r.schedule}</span>
                         </div>
-                        <div className="text-[11px] text-[var(--text-secondary)] mb-1">{r.description}</div>
-                        {r.logFile && (
-                          <div className="text-[10px] font-mono text-[var(--text-tertiary)]">
-                            Log: {r.logFile}
-                          </div>
-                        )}
+                        <div className="text-[11px] text-[var(--text-secondary)]">{r.description}</div>
                       </div>
                     ))}
                   </div>

@@ -13,16 +13,17 @@ interface Notification {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string>(() => {
+  const [lastSeenEpoch, setLastSeenEpoch] = useState<number>(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("notif_last_seen") || "";
+      const stored = localStorage.getItem("notif_last_seen_epoch");
+      return stored ? Number(stored) : 0;
     }
-    return "";
+    return 0;
   });
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = lastSeenTimestamp
-    ? notifications.filter((n) => n.timestamp > lastSeenTimestamp).length
+  const unreadCount = lastSeenEpoch
+    ? notifications.filter((n) => Date.parse(n.timestamp) > lastSeenEpoch).length
     : notifications.length;
 
   const fetchNotifications = useCallback(() => {
@@ -57,9 +58,9 @@ export default function NotificationBell() {
   const handleOpen = () => {
     setIsOpen(!isOpen);
     if (!isOpen && notifications.length > 0) {
-      const latest = notifications[0].timestamp; // notifications are reverse-sorted
-      setLastSeenTimestamp(latest);
-      localStorage.setItem("notif_last_seen", latest);
+      const latestEpoch = Date.parse(notifications[0].timestamp); // notifications are reverse-sorted
+      setLastSeenEpoch(latestEpoch);
+      localStorage.setItem("notif_last_seen_epoch", String(latestEpoch));
     }
   };
 
