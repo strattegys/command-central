@@ -5,7 +5,6 @@ import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
-import SystemPromptEditor from "@/components/SystemPromptEditor";
 import NotificationBell from "@/components/NotificationBell";
 
 export interface AgentConfig {
@@ -60,7 +59,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState("tim");
-  const [showPromptEditor, setShowPromptEditor] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -320,16 +319,6 @@ export default function ChatPage() {
               </button>
             )}
             <NotificationBell />
-            <button
-              onClick={() => setShowPromptEditor(true)}
-              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
-              title="Edit system prompt"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -358,14 +347,6 @@ export default function ChatPage() {
       {/* Info panel */}
       <AgentInfoPanel agent={agent} />
 
-      {/* System Prompt Editor Modal */}
-      {showPromptEditor && (
-        <SystemPromptEditor
-          agentId={activeAgent}
-          agentName={agent.name}
-          onClose={() => setShowPromptEditor(false)}
-        />
-      )}
     </div>
   );
 }
