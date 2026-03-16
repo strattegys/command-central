@@ -6,6 +6,7 @@ on:
     paths:
       - 'web/**'
       - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,25 +27,28 @@ jobs:
         run: cd web && npm run build
 
       - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        env:
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add server to known hosts
-        run: ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key_enc
+          chmod 600 ~/.ssh/deploy_key_enc
+          # Decrypt passphrase-protected key to unencrypted key for non-interactive use
+          ssh-keygen -p -f ~/.ssh/deploy_key_enc -P "${{ secrets.SSH_PASSPHRASE }}" -N ""
+          mv ~/.ssh/deploy_key_enc ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/deploy_key
 
       - name: Deploy to server
         run: |
-          rsync -az --delete \
+          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
             --exclude='.env*' \
             --exclude='node_modules' \
             web/ root@${{ secrets.DEPLOY_HOST }}:/opt/agent-tim/cloud-nanobot-tim/web/
 
       - name: Install production deps and restart
         run: |
-          ssh root@${{ secrets.DEPLOY_HOST }} "
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "
             cd /opt/agent-tim/cloud-nanobot-tim/web &&
             npm ci --production &&
             pm2 restart command-central --update-env &&
@@ -54,9 +58,13 @@ jobs:
       - name: Health check
         run: |
           sleep 5
-          ssh root@${{ secrets.DEPLOY_HOST }} "curl -sf http://localhost:3001 > /dev/null" || {
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "curl -sf http://localhost:3001 > /dev/null" || {
             echo "Health check failed! App may not be running."
-            ssh root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 20 --nostream"
+            ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 20 --nostream"
             exit 1
           }
           echo "Health check passed - Command Central is running."
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
