@@ -179,7 +179,8 @@ export async function chatStream(
     const functionResponses = functionCalls.map((fc) => {
       const result = executeTool(
         fc.functionCall!.name!,
-        (fc.functionCall!.args as Record<string, string>) || {}
+        (fc.functionCall!.args as Record<string, string>) || {},
+        userMessage
       );
       return {
         functionResponse: {
