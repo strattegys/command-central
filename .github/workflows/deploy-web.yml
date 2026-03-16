@@ -28,17 +28,12 @@ jobs:
 
       - name: Set up SSH
         env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_PASS: ${{ secrets.SSH_PASSPHRASE }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key_enc
-          chmod 600 ~/.ssh/deploy_key_enc
-          ssh-keygen -p -f ~/.ssh/deploy_key_enc -P "$SSH_PASS" -N ""
-          mv ~/.ssh/deploy_key_enc ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to server
         run: |
