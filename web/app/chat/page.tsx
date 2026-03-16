@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
+import SystemPromptEditor from "@/components/SystemPromptEditor";
 
 export interface AgentConfig {
   id: string;
@@ -58,9 +59,19 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState("tim");
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const loadedAgentRef = useRef<string | null>(null);
 
   const agent = AGENTS.find((a) => a.id === activeAgent) || AGENTS[0];
+
+  // Filter messages by search query
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery.trim()) return messages;
+    const q = searchQuery.toLowerCase();
+    return messages.filter((m) => m.text.toLowerCase().includes(q));
+  }, [messages, searchQuery]);
 
   // Load chat history when agent changes
   useEffect(() => {
@@ -99,11 +110,13 @@ export default function ChatPage() {
         timestamp: Date.now(),
       };
 
+      const botMsgId = `bot-${Date.now()}`;
+
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
 
       try {
-        const res = await fetch("/api/chat", {
+        const res = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text, agent: activeAgent }),
@@ -114,28 +127,71 @@ export default function ChatPage() {
           return;
         }
 
-        const data = await res.json();
-
-        if (data.error) {
+        if (!res.ok || !res.body) {
+          const data = await res.json().catch(() => ({ error: "Request failed" }));
           setMessages((prev) => [
             ...prev,
             {
               id: `error-${Date.now()}`,
               role: "model",
-              text: `Error: ${data.error}`,
+              text: `Error: ${data.error || "Unknown error"}`,
               timestamp: Date.now(),
             },
           ]);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `bot-${Date.now()}`,
-              role: "model",
-              text: data.reply,
-              timestamp: Date.now(),
-            },
-          ]);
+          return;
+        }
+
+        // Add empty bot message that will be streamed into
+        setMessages((prev) => [
+          ...prev,
+          { id: botMsgId, role: "model", text: "", timestamp: Date.now() },
+        ]);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId ? { ...m, text: `Error: ${parsed.error}` } : m
+                  )
+                );
+              } else if (parsed.text) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId ? { ...m, text: m.text + parsed.text } : m
+                  )
+                );
+              }
+            } catch {
+              // skip malformed chunks
+            }
+          }
+        }
+
+        // Play notification sound when response is complete
+        try {
+          const audio = new Audio("/sounds/notification.wav");
+          audio.volume = 0.3;
+          audio.play().catch(() => {});
+        } catch {
+          // ignore audio errors
         }
       } catch {
         setMessages((prev) => [
@@ -180,10 +236,61 @@ export default function ChatPage() {
         {/* Main chat area */}
         <div className="flex-1 flex flex-col min-w-0 bg-[var(--bg-primary)]">
           {/* Top bar */}
-          <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]" />
+          <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-sm font-medium truncate" style={{ color: agent.color }}>
+                {agent.name}
+              </span>
+              <span className="text-xs text-[var(--text-secondary)] truncate hidden sm:inline">
+                {agent.role}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {isSearching ? (
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search messages..."
+                  autoFocus
+                  onBlur={() => {
+                    if (!searchQuery) setIsSearching(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSearchQuery("");
+                      setIsSearching(false);
+                    }
+                  }}
+                  className="bg-[var(--bg-input)] text-[var(--text-primary)] text-xs rounded-lg px-2.5 py-1.5 w-40 outline-none placeholder-[var(--text-secondary)]"
+                />
+              ) : (
+                <button
+                  onClick={() => setIsSearching(true)}
+                  className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+                  title="Search messages"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={() => setShowPromptEditor(true)}
+                className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+                title="Edit system prompt"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
           <ChatWindow
-            messages={messages}
+            messages={filteredMessages}
             isLoading={isLoading}
             agentName={agent.name}
             agentColor={agent.color}
@@ -203,6 +310,15 @@ export default function ChatPage() {
         {/* Info panel */}
         <AgentInfoPanel agent={agent} />
       </div>
+
+      {/* System Prompt Editor Modal */}
+      {showPromptEditor && (
+        <SystemPromptEditor
+          agentId={activeAgent}
+          agentName={agent.name}
+          onClose={() => setShowPromptEditor(false)}
+        />
+      )}
     </div>
   );
 }
