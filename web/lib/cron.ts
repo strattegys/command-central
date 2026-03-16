@@ -26,9 +26,21 @@ export interface CronJobConfig {
   lastResult?: string; // "success" or error message
 }
 
-const jobRegistry = new Map<string, CronJobConfig>();
-const scheduledTasks = new Map<string, ScheduledTask>();
-let initialized = false;
+// Use globalThis to share state between instrumentation hook and API routes
+// (Turbopack creates separate module instances for each context)
+const globalForCron = globalThis as typeof globalThis & {
+  __cronJobRegistry?: Map<string, CronJobConfig>;
+  __cronScheduledTasks?: Map<string, ScheduledTask>;
+  __cronInitialized?: boolean;
+};
+
+const jobRegistry = globalForCron.__cronJobRegistry ?? new Map<string, CronJobConfig>();
+globalForCron.__cronJobRegistry = jobRegistry;
+
+const scheduledTasks = globalForCron.__cronScheduledTasks ?? new Map<string, ScheduledTask>();
+globalForCron.__cronScheduledTasks = scheduledTasks;
+
+let initialized = globalForCron.__cronInitialized ?? false;
 
 function logToFile(logFile: string | undefined, message: string): void {
   if (!logFile) return;
@@ -93,6 +105,7 @@ function registerJob(
 export function initCronJobs(): void {
   if (initialized) return;
   initialized = true;
+  globalForCron.__cronInitialized = true;
 
   console.log("[cron] Initializing cron jobs...");
 
