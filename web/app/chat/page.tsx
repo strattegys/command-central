@@ -6,6 +6,7 @@ import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
 import SystemPromptEditor from "@/components/SystemPromptEditor";
+import NotificationBell from "@/components/NotificationBell";
 
 export interface AgentConfig {
   id: string;
@@ -318,6 +319,7 @@ export default function ChatPage() {
                 </svg>
               </button>
             )}
+            <NotificationBell />
             <button
               onClick={() => setShowPromptEditor(true)}
               className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
