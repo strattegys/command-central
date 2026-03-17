@@ -20,7 +20,7 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
     memoryDir: "/root/.nanobot/memory",
-    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task"],
+    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task", "slack"],
     routines: [
       {
         name: "LinkedIn Message Sync",

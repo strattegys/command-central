@@ -8,18 +8,32 @@ const TOOL_SCRIPTS_PATH =
 const TOOL_TIMEOUT = 15000;
 const LINKEDIN_TIMEOUT = 60000;
 
+// Optional callback for delegation visibility (set by Slack gateway)
+export type DelegationCallback = (from: string, to: string, task: string, result: string) => void;
+let delegationCallback: DelegationCallback | undefined;
+export function setDelegationCallback(cb: DelegationCallback) {
+  delegationCallback = cb;
+}
+
+// Optional callback for Slack operations (set by Slack gateway)
+export type SlackExecutor = (agentId: string, command: string, args: Record<string, string>) => Promise<string>;
+let slackExecutor: SlackExecutor | undefined;
+export function setSlackExecutor(executor: SlackExecutor) {
+  slackExecutor = executor;
+}
+
 export const toolDeclarations = [
   {
     name: "twenty_crm",
     description:
-      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). For create-contact, use flat JSON fields like {\"firstName\":\"John\",\"lastName\":\"Doe\",\"jobTitle\":\"CEO\",\"email\":\"j@co.com\",\"linkedinUrl\":\"https://linkedin.com/in/slug\",\"companyId\":\"uuid\"} — the tool auto-wraps into Twenty's composite format. For write-note, arg1=title, arg2=markdown content (supports full markdown). Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, search-companies, create-company, get-company, list-campaigns, get-campaign, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
+      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). For create-contact, use flat JSON fields like {\"firstName\":\"John\",\"lastName\":\"Doe\",\"jobTitle\":\"CEO\",\"email\":\"j@co.com\",\"linkedinUrl\":\"https://linkedin.com/in/slug\",\"companyId\":\"uuid\"} — the tool auto-wraps into Twenty's composite format. For write-note, arg1=title, arg2=markdown content (supports full markdown). Campaign commands use a dedicated Campaign object with inline spec field. Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, search-companies, create-company, get-company, list-campaigns, get-campaign, get-campaign-spec, update-campaign-spec, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "The command to run. Key commands: search-contacts (find people by name), create-contact (accepts flat JSON with firstName, lastName, jobTitle, email, linkedinUrl, companyId), write-note (arg1=title, arg2=content, optionally arg1=title arg2=content for linked notes use the format: 'title' 'content' 'targetType' 'targetId'), search-companies, create-company, list-campaigns, get-campaign, add-to-campaign.",
+            "The command to run. Key commands: search-contacts (find people by name), create-contact (accepts flat JSON with firstName, lastName, jobTitle, email, linkedinUrl, companyId), write-note (arg1=title, arg2=content, optionally arg1=title arg2=content for linked notes use the format: 'title' 'content' 'targetType' 'targetId'), search-companies, create-company, list-campaigns, get-campaign, get-campaign-spec (read spec), update-campaign-spec (arg1=campaign_id, arg2=new_spec), create-campaign (arg1=name, arg2=spec), add-to-campaign.",
         },
         arg1: {
           type: "string",
@@ -128,6 +142,51 @@ export const toolDeclarations = [
           type: "string",
           description:
             "For save_fact: the fact to remember. For replace: the full new memory content.",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "slack",
+    description:
+      "Interact with Slack workspace. You can post messages to channels, read channel history, reply in threads, react to messages, list channels, and DM users. You are IN Slack — when a user talks to you in a channel or DM, your response is already posted there. Use this tool when you need to proactively reach out to a DIFFERENT channel, start a new thread, or read what's happening elsewhere.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies)",
+        },
+        channel: {
+          type: "string",
+          description:
+            "Channel name (without #) or channel ID. For named channels use: alerts, ops, research, general, etc. For DMs, use the user's Slack ID.",
+        },
+        text: {
+          type: "string",
+          description: "Message text (for post-message, reply-thread, dm-user)",
+        },
+        thread_ts: {
+          type: "string",
+          description: "Thread timestamp (for reply-thread, read-thread, react)",
+        },
+        emoji: {
+          type: "string",
+          description: "Emoji name without colons, e.g. 'thumbsup' (for react)",
+        },
+        message_ts: {
+          type: "string",
+          description: "Message timestamp to react to (for react)",
+        },
+        limit: {
+          type: "string",
+          description: "Number of messages to read (for read-channel, read-thread). Default: 10",
+        },
+        user_id: {
+          type: "string",
+          description: "Slack user ID for dm-user command",
         },
       },
       required: ["command"],
@@ -282,6 +341,13 @@ export async function executeTool(
       return result;
     }
 
+    if (name === "slack") {
+      if (!slackExecutor) {
+        return "Slack is not available in this context. Slack tools only work when running through the Slack gateway.";
+      }
+      return await slackExecutor(agentId, args.command, args);
+    }
+
     if (name === "delegate_task") {
       const targetAgent = args.agent;
       const taskDesc = args.task;
@@ -296,6 +362,8 @@ export async function executeTool(
         // Dynamic import to avoid circular dependency with gemini.ts
         const { autonomousChat } = await import("./gemini");
         const result = await autonomousChat(targetAgent, taskDesc, { fromAgent: agentId });
+        // Notify Slack (or other transport) about the delegation
+        delegationCallback?.(agentId, targetAgent, taskDesc, result || "(no response)");
         return result || "The agent completed the task but returned no response.";
       } else {
         // Async: queue the task for the target agent's heartbeat to pick up

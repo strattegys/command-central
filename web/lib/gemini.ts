@@ -38,12 +38,14 @@ function buildGeminiTools(allowedTools: string[]) {
 
 export async function chat(
   agentId: string,
-  userMessage: string
+  userMessage: string,
+  options?: { sessionFile?: string; saveMessage?: string }
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
   const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
-  const history = getHistory(config.sessionFile);
+  const sessionFile = options?.sessionFile || config.sessionFile;
+  const history = getHistory(sessionFile);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contents: any[] = history.map((msg: ChatMessage) => ({
@@ -51,6 +53,11 @@ export async function chat(
     parts: [{ text: msg.text }],
   }));
   contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+  // saveMessage: what gets persisted to session (defaults to userMessage).
+  // Useful when userMessage has ephemeral context (e.g., thread preamble)
+  // that shouldn't be saved since it's re-fetched each time.
+  const messageToSave = options?.saveMessage ?? userMessage;
 
   const tools = buildGeminiTools(config.tools);
   const delegatedAgents = new Set<string>();
@@ -119,9 +126,9 @@ export async function chat(
     const replyText = textParts.map((p) => p.text).join("");
 
     if (replyText) {
-      addMessage(config.sessionFile, {
+      addMessage(sessionFile, {
         role: "user",
-        text: userMessage,
+        text: messageToSave,
         timestamp: Date.now(),
       });
 
@@ -133,10 +140,10 @@ export async function chat(
       if (delegatedAgents.size > 0) {
         modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
       }
-      addMessage(config.sessionFile, modelMsg);
+      addMessage(sessionFile, modelMsg);
 
       // Fire-and-forget: consolidate if session is long
-      consolidateSession(agentId, config.sessionFile).catch(() => {});
+      consolidateSession(agentId, sessionFile).catch(() => {});
 
       return replyText;
     }
