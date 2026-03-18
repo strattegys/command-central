@@ -129,6 +129,18 @@ function initCronJobs() {
     } catch {
       // Silent — most runs have nothing to process
     }
+
+    // Process scheduled LinkedIn replies from Slack
+    try {
+      const { processScheduledReplies } = await import("./linkedin-reply.js");
+      const timApp = botApps.find((b) => b.agentId === "tim");
+      const sent = await processScheduledReplies(timApp?.app.client);
+      if (sent > 0) {
+        console.log(`[cron] Sent ${sent} scheduled LinkedIn reply(s)`);
+      }
+    } catch {
+      // Silent — most runs have nothing to process
+    }
   });
 
   console.log("[cron] All cron jobs registered");

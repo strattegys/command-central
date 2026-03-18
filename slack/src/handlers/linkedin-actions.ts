@@ -9,66 +9,53 @@ import {
   type ButtonMetadata,
   type LinkedInMessageParams,
 } from "../linkedin-blocks.js";
-import { sendLinkedInReply, logReplyNote } from "../linkedin-reply.js";
+import { sendLinkedInReply, logReplyNote, scheduleLinkedInReply } from "../linkedin-reply.js";
 
 /**
  * Register all LinkedIn action handlers on a Bolt app.
  */
 export function registerLinkedInActionHandlers(app: App): void {
-  // ── Status buttons ──────────────────────────────────────────────────────
+  // ── Ignore button ───────────────────────────────────────────────────────
 
-  const statusHandlers: Array<{
-    actionId: string;
-    statusText: string;
-  }> = [
-    { actionId: "linkedin_handle", statusText: ":eyes: Being handled" },
-    { actionId: "linkedin_replied", statusText: ":white_check_mark: Replied" },
-    { actionId: "linkedin_ignore", statusText: ":no_entry_sign: Ignored" },
-  ];
+  app.action("linkedin_ignore", async ({ ack, body, client, logger }) => {
+    await ack();
 
-  for (const { actionId, statusText } of statusHandlers) {
-    app.action(actionId, async ({ ack, body, client, logger }) => {
-      await ack();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = body as any;
+    const channelId = b.channel?.id as string | undefined;
+    const messageTs = b.message?.ts as string | undefined;
+    const userId = b.user?.id as string | undefined;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const b = body as any;
-      const channelId = b.channel?.id as string | undefined;
-      const messageTs = b.message?.ts as string | undefined;
-      const userId = b.user?.id as string | undefined;
+    if (!channelId || !messageTs) return;
 
-      if (!channelId || !messageTs) return;
+    try {
+      const originalBlocks = b.message?.blocks || [];
+      const params = extractParamsFromBlocks(originalBlocks, b.actions?.[0]?.value);
 
-      try {
-        // Extract original message params from the blocks
-        const originalBlocks = b.message?.blocks || [];
-        const params = extractParamsFromBlocks(originalBlocks, b.actions?.[0]?.value);
+      if (params) {
+        const updatedBlocks = buildLinkedInMessageBlocks(params, {
+          text: ":no_entry_sign: Ignored",
+          userId,
+        });
 
-        if (params) {
-          const updatedBlocks = buildLinkedInMessageBlocks(params, {
-            text: statusText,
-            userId,
-          });
-
-          await client.chat.update({
-            channel: channelId,
-            ts: messageTs,
-            text: `${statusText} — LinkedIn message from ${params.senderName}`,
-            blocks: updatedBlocks,
-          });
-        } else {
-          // Fallback: just remove blocks and show status
-          await client.chat.update({
-            channel: channelId,
-            ts: messageTs,
-            text: `${statusText}`,
-            blocks: [],
-          });
-        }
-      } catch (err) {
-        logger.error(`[linkedin-actions] ${actionId} error:`, err);
+        await client.chat.update({
+          channel: channelId,
+          ts: messageTs,
+          text: `Ignored — LinkedIn message from ${params.senderName}`,
+          blocks: updatedBlocks,
+        });
+      } else {
+        await client.chat.update({
+          channel: channelId,
+          ts: messageTs,
+          text: ":no_entry_sign: Ignored",
+          blocks: [],
+        });
       }
-    });
-  }
+    } catch (err) {
+      logger.error("[linkedin-actions] ignore error:", err);
+    }
+  });
 
   // ── Reply button → opens modal ──────────────────────────────────────────
 
@@ -87,7 +74,6 @@ export function registerLinkedInActionHandlers(app: App): void {
     try {
       const metadata: ButtonMetadata = JSON.parse(actionValue);
 
-      // Encode channel/message info so the modal submission can update the original message
       const privateMetadata = JSON.stringify({
         chat_id: metadata.chat_id,
         sender_name: metadata.sender_name,
@@ -115,9 +101,23 @@ export function registerLinkedInActionHandlers(app: App): void {
   // ── Modal submission ────────────────────────────────────────────────────
 
   app.view("linkedin_reply_modal", async ({ ack, view, client, body, logger }) => {
+    const replyText = view.state.values.reply_input_block?.reply_text?.value;
+    const sendTiming = view.state.values.send_timing_block?.send_timing?.selected_option?.value || "now";
+    const scheduleDatetime = view.state.values.schedule_date_block?.schedule_datetime?.selected_date_time;
+
+    // Validate: if "later" is selected, a datetime is required
+    if (sendTiming === "later" && !scheduleDatetime) {
+      await ack({
+        response_action: "errors",
+        errors: {
+          schedule_date_block: "Please pick a date and time for Send Later",
+        },
+      });
+      return;
+    }
+
     await ack();
 
-    const replyText = view.state.values.reply_input_block?.reply_text?.value;
     if (!replyText) return;
 
     let meta: {
@@ -136,30 +136,44 @@ export function registerLinkedInActionHandlers(app: App): void {
       return;
     }
 
-    // Send the reply via Unipile
-    const result = await sendLinkedInReply(meta.chat_id, replyText);
+    if (sendTiming === "later" && scheduleDatetime) {
+      // ── Schedule for later ──────────────────────────────────────────────
+      const sendAt = new Date(scheduleDatetime * 1000).toISOString();
 
-    if (result.success) {
-      // Log as CRM note
-      if (meta.contact_id) {
-        logReplyNote(meta.contact_id, meta.sender_name, replyText);
-      }
+      scheduleLinkedInReply({
+        chatId: meta.chat_id,
+        messageText: replyText,
+        senderName: meta.sender_name,
+        contactId: meta.contact_id,
+        sendAt,
+        slackChannelId: meta.channel_id,
+        slackMessageTs: meta.message_ts,
+        scheduledBy: body.user.id,
+      });
 
-      // Update the original Slack message to show "Replied" status
+      // Update original Slack message
       try {
         const originalBlocks = await getOriginalBlocks(client, meta.channel_id, meta.message_ts);
         const params = extractParamsFromBlocks(originalBlocks, undefined);
 
+        const formattedTime = new Date(sendAt).toLocaleString("en-US", {
+          timeZone: "America/Los_Angeles",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+
         if (params) {
           const updatedBlocks = buildLinkedInMessageBlocks(params, {
-            text: ":white_check_mark: Replied",
+            text: `:clock1: Reply scheduled for ${formattedTime} PT`,
             userId: body.user.id,
           });
 
           await client.chat.update({
             channel: meta.channel_id,
             ts: meta.message_ts,
-            text: `Replied — LinkedIn message from ${meta.sender_name}`,
+            text: `Reply scheduled — LinkedIn message from ${meta.sender_name}`,
             blocks: updatedBlocks,
           });
         }
@@ -167,25 +181,74 @@ export function registerLinkedInActionHandlers(app: App): void {
         logger.error("[linkedin-actions] Could not update original message:", err);
       }
 
-      // Post thread confirmation
+      // Thread confirmation
       try {
+        const formattedTime = new Date(sendAt).toLocaleString("en-US", {
+          timeZone: "America/Los_Angeles",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
         await client.chat.postMessage({
           channel: meta.channel_id,
           thread_ts: meta.message_ts,
-          text: `:white_check_mark: Reply sent to ${meta.sender_name}:\n>${replyText.slice(0, 300)}`,
+          text: `:clock1: Reply to ${meta.sender_name} scheduled for ${formattedTime} PT:\n>${replyText.slice(0, 300)}`,
         });
       } catch (err) {
         logger.error("[linkedin-actions] Thread confirmation error:", err);
       }
     } else {
-      // Notify user of failure via DM
-      try {
-        await client.chat.postMessage({
-          channel: body.user.id,
-          text: `:x: Failed to send LinkedIn reply to ${meta.sender_name}: ${result.error}`,
-        });
-      } catch (err) {
-        logger.error("[linkedin-actions] Error notification failed:", err);
+      // ── Send now ────────────────────────────────────────────────────────
+      const result = await sendLinkedInReply(meta.chat_id, replyText);
+
+      if (result.success) {
+        if (meta.contact_id) {
+          logReplyNote(meta.contact_id, meta.sender_name, replyText);
+        }
+
+        // Update original message
+        try {
+          const originalBlocks = await getOriginalBlocks(client, meta.channel_id, meta.message_ts);
+          const params = extractParamsFromBlocks(originalBlocks, undefined);
+
+          if (params) {
+            const updatedBlocks = buildLinkedInMessageBlocks(params, {
+              text: ":white_check_mark: Replied",
+              userId: body.user.id,
+            });
+
+            await client.chat.update({
+              channel: meta.channel_id,
+              ts: meta.message_ts,
+              text: `Replied — LinkedIn message from ${meta.sender_name}`,
+              blocks: updatedBlocks,
+            });
+          }
+        } catch (err) {
+          logger.error("[linkedin-actions] Could not update original message:", err);
+        }
+
+        // Thread confirmation
+        try {
+          await client.chat.postMessage({
+            channel: meta.channel_id,
+            thread_ts: meta.message_ts,
+            text: `:white_check_mark: Reply sent to ${meta.sender_name}:\n>${replyText.slice(0, 300)}`,
+          });
+        } catch (err) {
+          logger.error("[linkedin-actions] Thread confirmation error:", err);
+        }
+      } else {
+        // Notify failure via DM
+        try {
+          await client.chat.postMessage({
+            channel: body.user.id,
+            text: `:x: Failed to send LinkedIn reply to ${meta.sender_name}: ${result.error}`,
+          });
+        } catch (err) {
+          logger.error("[linkedin-actions] Error notification failed:", err);
+        }
       }
     }
   });
@@ -193,17 +256,12 @@ export function registerLinkedInActionHandlers(app: App): void {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Extract LinkedInMessageParams from the original message blocks and button metadata.
- * Used to rebuild blocks with updated status.
- */
 function extractParamsFromBlocks(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   blocks: any[],
   buttonValue: string | undefined
 ): LinkedInMessageParams | null {
   try {
-    // Try to parse metadata from button value first
     let metadata: ButtonMetadata | null = null;
     if (buttonValue) {
       try {
@@ -213,7 +271,6 @@ function extractParamsFromBlocks(
       }
     }
 
-    // If no button value, try to find it from the actions block
     if (!metadata) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionsBlock = blocks.find((b: any) => b.block_id === "linkedin_actions");
@@ -229,7 +286,6 @@ function extractParamsFromBlocks(
 
     if (!metadata) return null;
 
-    // Extract the original message text from the quoted section block
     let messageText = "";
     for (const block of blocks) {
       if (block.type === "section" && block.text?.text?.startsWith(">")) {
@@ -238,16 +294,7 @@ function extractParamsFromBlocks(
       }
     }
 
-    // Extract timestamp from context block
     let timestamp = new Date().toISOString();
-    for (const block of blocks) {
-      if (block.type === "context" && block.elements?.[0]?.text?.startsWith("Received ")) {
-        // We can't reliably reverse-parse the formatted timestamp, so use current time
-        break;
-      }
-    }
-
-    // Extract triage info from blocks
     let personSummary = "";
     let campaignInfo = "";
     let suggestedReply = metadata.suggested_reply || "";
@@ -278,10 +325,6 @@ function extractParamsFromBlocks(
   }
 }
 
-/**
- * Fetch the original message blocks from Slack.
- * Used after modal submission when we don't have the blocks in the body.
- */
 async function getOriginalBlocks(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   client: any,

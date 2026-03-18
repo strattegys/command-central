@@ -142,18 +142,6 @@ export function buildLinkedInMessageBlocks(
         },
         {
           type: "button",
-          text: { type: "plain_text", text: ":eyes: Handle", emoji: true },
-          action_id: "linkedin_handle",
-          value: metaJson,
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: ":white_check_mark: Replied", emoji: true },
-          action_id: "linkedin_replied",
-          value: metaJson,
-        },
-        {
-          type: "button",
           text: { type: "plain_text", text: ":no_entry_sign: Ignore", emoji: true },
           action_id: "linkedin_ignore",
           value: metaJson,
@@ -167,6 +155,7 @@ export function buildLinkedInMessageBlocks(
 
 /**
  * Build the Reply modal view with pre-filled suggested reply.
+ * Includes Send Now / Send Later option with datetime picker.
  */
 export function buildLinkedInReplyModal(
   senderName: string,
@@ -199,6 +188,39 @@ export function buildLinkedInReplyModal(
           placeholder: { type: "plain_text", text: "Type your reply..." },
         },
         label: { type: "plain_text", text: "Message" },
+      },
+      {
+        type: "input",
+        block_id: "send_timing_block",
+        element: {
+          type: "static_select",
+          action_id: "send_timing",
+          initial_option: {
+            text: { type: "plain_text", text: "Send Now" },
+            value: "now",
+          },
+          options: [
+            {
+              text: { type: "plain_text", text: "Send Now" },
+              value: "now",
+            },
+            {
+              text: { type: "plain_text", text: "Send Later" },
+              value: "later",
+            },
+          ],
+        },
+        label: { type: "plain_text", text: "When" },
+      },
+      {
+        type: "input",
+        block_id: "schedule_date_block",
+        optional: true,
+        element: {
+          type: "datetimepicker",
+          action_id: "schedule_datetime",
+        },
+        label: { type: "plain_text", text: "Schedule for (required if Send Later)" },
       },
     ],
   };
