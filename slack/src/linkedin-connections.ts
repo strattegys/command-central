@@ -172,6 +172,38 @@ export function fetchLinkedInProfile(identifier: string): Record<string, unknown
 }
 
 /**
+ * Update a person's stage in the CRM.
+ * Stages: ACCEPTED → MESSAGED → ENGAGED
+ */
+export function updatePersonStage(contactId: string, stage: string): void {
+  try {
+    execFileSync("bash", [CRM_TOOL, "update-contact", contactId, JSON.stringify({ stage })], {
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    console.log(`[connections] Set stage=${stage} for contact ${contactId}`);
+  } catch (err) {
+    console.error(`[connections] Stage update error for ${contactId}:`, err);
+  }
+}
+
+/**
+ * Get a person's current stage from the CRM.
+ */
+export function getPersonStage(contactId: string): string | null {
+  try {
+    const result = execFileSync("bash", [CRM_TOOL, "get-contact", contactId], {
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const data = JSON.parse(result);
+    return data?.data?.person?.stage || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Enrich a CRM contact using LinkedIn profile data from Unipile.
  * Updates: jobTitle, city, email, company (find or create).
  */
@@ -320,13 +352,14 @@ export async function checkNewConnections(slackClient?: WebClient): Promise<numb
     // Find or create CRM contact
     const contactId = findOrCreateCrmContact(conn.first_name, conn.last_name, linkedinUrl);
 
-    // Enrich contact from LinkedIn profile
+    // Enrich contact from LinkedIn profile and set stage to ACCEPTED
     if (contactId) {
       const profileId = conn.public_identifier || conn.member_id;
       const profile = fetchLinkedInProfile(profileId);
       if (profile) {
         enrichContactFromLinkedIn(contactId, profile);
       }
+      updatePersonStage(contactId, "ACCEPTED");
     }
 
     // Triage — Tim suggests an opening message

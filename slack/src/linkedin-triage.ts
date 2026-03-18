@@ -147,6 +147,47 @@ export async function triageNewConnection(
 }
 
 /**
+ * Ask Tim to review a LinkedIn reply draft for typos, grammar, and tone.
+ * Returns the corrected text (or the original if no changes needed).
+ */
+export async function checkLinkedInReply(
+  senderName: string,
+  draftText: string
+): Promise<{ correctedText: string; changes: string }> {
+  const prompt = [
+    `Review this LinkedIn message draft for any typos, grammar issues, or awkward phrasing. Make minimal corrections — do not rewrite or change the tone.`,
+    ``,
+    `**Recipient:** ${senderName}`,
+    `**Draft:**`,
+    `${draftText}`,
+    ``,
+    `Respond in EXACTLY this format:`,
+    `CORRECTED_TEXT: <the corrected message, or the exact original if no changes needed>`,
+    `CHANGES: <brief description of what was fixed, or "No changes needed">`,
+  ].join("\n");
+
+  try {
+    const response = await Promise.race([
+      chat("tim", prompt, { sessionFile: getTriageSessionFile() }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Check timeout")), 30_000)
+      ),
+    ]);
+
+    const correctedMatch = response.match(/CORRECTED_TEXT:\s*(.+?)(?=\nCHANGES:|$)/s);
+    const changesMatch = response.match(/CHANGES:\s*(.+?)$/s);
+
+    return {
+      correctedText: correctedMatch?.[1]?.trim() || draftText,
+      changes: changesMatch?.[1]?.trim() || "No changes needed",
+    };
+  } catch (err) {
+    console.error("[linkedin-triage] Check failed, returning original:", err);
+    return { correctedText: draftText, changes: "Check failed — using original text" };
+  }
+}
+
+/**
  * Parse Tim's structured response into a TriageResult.
  */
 function parseTriageResponse(response: string): TriageResult {

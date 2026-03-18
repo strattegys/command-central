@@ -174,10 +174,10 @@ export function buildLinkedInReplyModal(
 ): ModalView {
   return {
     type: "modal",
-    callback_id: "linkedin_reply_modal",
+    callback_id: "linkedin_check_modal",
     private_metadata: privateMetadata,
     title: { type: "plain_text", text: "Reply on LinkedIn" },
-    submit: { type: "plain_text", text: "Send" },
+    submit: { type: "plain_text", text: "Reply" },
     close: { type: "plain_text", text: "Cancel" },
     blocks: [
       {
