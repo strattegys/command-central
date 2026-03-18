@@ -13,6 +13,7 @@ const SCHEDULED_QUEUE_FILE = process.env.LINKEDIN_SCHEDULED_QUEUE || "/root/.nan
 
 interface ScheduledReply {
   chatId: string;
+  linkedinUrl?: string; // fallback for new connections with no chat
   messageText: string;
   senderName: string;
   contactId: string | null;
@@ -23,6 +24,7 @@ interface ScheduledReply {
 }
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
+const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 
 /**
  * Send a message to a LinkedIn chat via Unipile.
@@ -71,6 +73,29 @@ export async function sendLinkedInReply(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[linkedin-reply] Send failed:`, msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Send a new LinkedIn message to a person (no existing chat).
+ * Uses the linkedin.sh send-message command which creates a chat via Unipile.
+ * The recipientId should be an ACoAAA provider ID or a LinkedIn URL.
+ */
+export function sendNewLinkedInMessage(
+  recipientId: string,
+  messageText: string
+): { success: boolean; error?: string } {
+  try {
+    const result = execFileSync("bash", [LINKEDIN_TOOL, "send-message", recipientId, messageText], {
+      timeout: 30000,
+      encoding: "utf-8",
+    });
+    console.log(`[linkedin-reply] Sent new message to ${recipientId}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[linkedin-reply] Send new message failed:`, msg);
     return { success: false, error: msg };
   }
 }
@@ -138,8 +163,12 @@ export async function processScheduledReplies(
       const sendAt = new Date(reply.sendAt);
 
       if (sendAt <= now) {
-        // Time to send
-        const result = await sendLinkedInReply(reply.chatId, reply.messageText);
+        // Time to send — use existing chat or create new message
+        const result = reply.chatId
+          ? await sendLinkedInReply(reply.chatId, reply.messageText)
+          : reply.linkedinUrl
+            ? sendNewLinkedInMessage(reply.linkedinUrl, reply.messageText)
+            : { success: false, error: "No chat_id or linkedin_url" };
 
         if (result.success) {
           sent++;

@@ -9,7 +9,7 @@ import {
   type ButtonMetadata,
   type LinkedInMessageParams,
 } from "../linkedin-blocks.js";
-import { sendLinkedInReply, logReplyNote, scheduleLinkedInReply } from "../linkedin-reply.js";
+import { sendLinkedInReply, sendNewLinkedInMessage, logReplyNote, scheduleLinkedInReply } from "../linkedin-reply.js";
 
 /**
  * Register all LinkedIn action handlers on a Bolt app.
@@ -142,6 +142,7 @@ export function registerLinkedInActionHandlers(app: App): void {
 
       scheduleLinkedInReply({
         chatId: meta.chat_id,
+        linkedinUrl: meta.linkedin_url,
         messageText: replyText,
         senderName: meta.sender_name,
         contactId: meta.contact_id,
@@ -200,7 +201,10 @@ export function registerLinkedInActionHandlers(app: App): void {
       }
     } else {
       // ── Send now ────────────────────────────────────────────────────────
-      const result = await sendLinkedInReply(meta.chat_id, replyText);
+      // If no chat_id (new connection), use send-message with LinkedIn URL
+      const result = meta.chat_id
+        ? await sendLinkedInReply(meta.chat_id, replyText)
+        : sendNewLinkedInMessage(meta.linkedin_url, replyText);
 
       if (result.success) {
         if (meta.contact_id) {

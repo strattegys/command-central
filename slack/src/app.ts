@@ -117,6 +117,20 @@ function initCronJobs() {
   // LinkedIn inbound messages now handled by Unipile webhook (webhook-server.ts)
   // The linkedin_extractor.py cron has been replaced by real-time webhooks.
 
+  // New LinkedIn connections poller — every 10 minutes
+  cron.schedule("*/10 * * * *", async () => {
+    try {
+      const { checkNewConnections } = await import("./linkedin-connections.js");
+      const timApp = botApps.find((b) => b.agentId === "tim");
+      const posted = await checkNewConnections(timApp?.app.client);
+      if (posted > 0) {
+        console.log(`[cron] Posted ${posted} new LinkedIn connection(s) to Slack`);
+      }
+    } catch (error) {
+      console.error("[cron] LinkedIn connections check error:", error);
+    }
+  });
+
   // Scheduled message processor — every minute
   cron.schedule("* * * * *", async () => {
     try {

@@ -81,6 +81,72 @@ export async function triageLinkedInMessage(
 }
 
 /**
+ * Ask Tim to triage a new LinkedIn connection (no message yet).
+ * Suggests an opening message based on the person's profile.
+ */
+export async function triageNewConnection(
+  name: string,
+  headline: string,
+  contactId: string | null,
+  linkedinUrl: string
+): Promise<TriageResult> {
+  const fallback: TriageResult = {
+    personSummary: headline ? `${name} — ${headline}` : name,
+    campaignInfo: "",
+    suggestedReply: "",
+  };
+
+  const promptLines = [
+    `A new LinkedIn connection was just established with this person. There is no message yet — suggest an opening message.`,
+    ``,
+    `**Name:** ${name}`,
+    headline ? `**Headline:** ${headline}` : "",
+    contactId ? `**CRM Contact ID:** ${contactId}` : "",
+    linkedinUrl ? `**LinkedIn:** ${linkedinUrl}` : "",
+    ``,
+    `Instructions:`,
+  ];
+
+  if (contactId) {
+    promptLines.push(
+      `1. Look up this person in the CRM using their contact ID (use get-person ${contactId})`,
+      `2. Check if they have an active campaign (use get-campaign-context ${contactId})`,
+      `3. Based on their profile, role, and any campaign context, suggest a warm opening message.`,
+    );
+  } else {
+    promptLines.push(
+      `1. Based on their name and headline, summarize who they are.`,
+      `2. Suggest a warm, personalized opening message to start a conversation.`,
+    );
+  }
+
+  promptLines.push(
+    ``,
+    `Respond in EXACTLY this format with no extra text:`,
+    ``,
+    `PERSON_SUMMARY: <1-2 sentence summary of who they are — role, company, key context>`,
+    `CAMPAIGN_INFO: <campaign name and stage if any, otherwise "None">`,
+    `SUGGESTED_REPLY: <a short, warm opening message to initiate conversation>`,
+  );
+
+  const prompt = promptLines.filter((line) => line !== undefined).join("\n");
+
+  try {
+    const response = await Promise.race([
+      chat("tim", prompt, { sessionFile: getTriageSessionFile() }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Triage timeout")), TRIAGE_TIMEOUT_MS)
+      ),
+    ]);
+
+    return parseTriageResponse(response);
+  } catch (err) {
+    console.error("[linkedin-triage] New connection triage failed, using fallback:", err);
+    return fallback;
+  }
+}
+
+/**
  * Parse Tim's structured response into a TriageResult.
  */
 function parseTriageResponse(response: string): TriageResult {
