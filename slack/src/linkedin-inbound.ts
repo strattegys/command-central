@@ -13,7 +13,7 @@ import type { WebClient } from "@slack/web-api";
 import { getChannelId } from "./config.js";
 import { triageLinkedInMessage, type TriageResult } from "./linkedin-triage.js";
 import { buildLinkedInMessageBlocks } from "./linkedin-blocks.js";
-import { fetchLinkedInProfile, enrichContactFromLinkedIn } from "./linkedin-connections.js";
+import { fetchLinkedInProfile, enrichContactFromLinkedIn, updatePersonStage, getPersonStage } from "./linkedin-connections.js";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
@@ -104,6 +104,12 @@ export async function handleUnipileWebhook(payload: UnipileWebhookPayload): Prom
     return;
   }
 
+  // If person was MESSAGED and they're replying → ENGAGED
+  const currentStage = getPersonStage(contactId);
+  if (currentStage === "MESSAGED") {
+    updatePersonStage(contactId, "ENGAGED");
+  }
+
   // Log as CRM note
   const formattedTime = formatTime(timestamp);
   const linkedinUrl = senderProviderId
@@ -168,12 +174,13 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
     ? `https://www.linkedin.com/in/${senderProviderId}`
     : "";
 
-  // Enrich contact from LinkedIn profile
+  // Enrich contact from LinkedIn profile and set stage to ACCEPTED
   if (contactId && senderProviderId) {
     const profile = fetchLinkedInProfile(senderProviderId);
     if (profile) {
       enrichContactFromLinkedIn(contactId, profile);
     }
+    updatePersonStage(contactId, "ACCEPTED");
   }
 
   // Log CRM note if we have a contact

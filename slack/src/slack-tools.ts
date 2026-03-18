@@ -191,8 +191,37 @@ export async function executeSlackTool(
         return `DM sent (ts: ${result.ts})`;
       }
 
+      case "set-reminder": {
+        if (!args.text) return "Error: text is required";
+        if (!args.time) return "Error: time is required (unix timestamp or natural language like 'in 15 minutes', 'tomorrow at 9am')";
+
+        const result = await client.reminders.add({
+          text: args.text,
+          time: args.time,
+          ...(args.user_id ? { user: args.user_id } : {}),
+        });
+        const reminder = result.reminder;
+        const when = reminder?.time ? new Date(reminder.time * 1000).toISOString() : "scheduled";
+        return `Reminder set: "${reminder?.text}" at ${when}`;
+      }
+
+      case "list-reminders": {
+        const result = await client.reminders.list();
+        const reminders = result.reminders;
+        if (!reminders || reminders.length === 0) {
+          return "No pending reminders";
+        }
+
+        const lines = reminders.map((r) => {
+          const when = r.time ? new Date(r.time * 1000).toISOString() : "no time";
+          const status = r.complete_ts ? "done" : "pending";
+          return `[${status}] "${r.text}" — ${when}`;
+        });
+        return lines.join("\n");
+      }
+
       default:
-        return `Unknown slack command: "${command}". Available: post-message, read-channel, reply-thread, react, list-channels, dm-user, read-thread`;
+        return `Unknown slack command: "${command}". Available: post-message, read-channel, reply-thread, react, list-channels, dm-user, read-thread, set-reminder, list-reminders`;
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);

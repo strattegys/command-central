@@ -6,6 +6,7 @@ import https from "https";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
+import { updatePersonStage } from "./linkedin-connections.js";
 
 const UNIPILE_API_KEY = process.env.UNIPILE_API_KEY || "";
 const UNIPILE_DSN = process.env.UNIPILE_DSN || "";
@@ -174,9 +175,10 @@ export async function processScheduledReplies(
           sent++;
           console.log(`[linkedin-reply] Sent scheduled reply to ${reply.senderName}`);
 
-          // Log CRM note
+          // Log CRM note and update stage
           if (reply.contactId) {
             logReplyNote(reply.contactId, reply.senderName, reply.messageText);
+            updatePersonStage(reply.contactId, "MESSAGED");
           }
 
           // Notify in Slack thread
