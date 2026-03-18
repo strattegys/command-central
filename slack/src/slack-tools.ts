@@ -194,22 +194,30 @@ export async function executeSlackTool(
       case "set-reminder": {
         if (!args.text) return "Error: text is required";
         if (!args.time) return "Error: time is required (unix timestamp, e.g. '1773890400')";
-        if (!args.channel) return "Error: channel is required (channel to post the reminder in)";
+        const target = args.channel || args.user_id;
+        if (!target) return "Error: channel or user_id is required";
 
-        const channelId = await resolveChannel(client, args.channel);
-        if (!channelId) return `Error: Could not find channel "${args.channel}"`;
+        // Resolve target: if it looks like a user ID (U...), open a DM first
+        let targetChannelId: string | undefined;
+        if (/^U[A-Z0-9]+$/.test(target)) {
+          const conv = await client.conversations.open({ users: target });
+          targetChannelId = conv.channel?.id;
+        } else {
+          targetChannelId = await resolveChannel(client, target);
+        }
+        if (!targetChannelId) return `Error: Could not resolve target "${target}"`;
 
         // Parse time: accept unix timestamp (seconds)
         const postAt = parseInt(args.time, 10);
         if (isNaN(postAt)) return "Error: time must be a unix timestamp in seconds";
 
         const result = await client.chat.scheduleMessage({
-          channel: channelId,
+          channel: targetChannelId,
           text: formatForSlack(args.text),
           post_at: postAt,
         });
         const when = new Date(postAt * 1000).toISOString();
-        return `Scheduled message set for ${when} in <#${channelId}> (id: ${result.scheduled_message_id})`;
+        return `Scheduled message set for ${when} (id: ${result.scheduled_message_id})`;
       }
 
       case "list-reminders": {
