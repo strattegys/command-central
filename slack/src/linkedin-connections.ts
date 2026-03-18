@@ -19,6 +19,7 @@ const UNIPILE_ACCOUNT_ID = process.env.UNIPILE_ACCOUNT_ID || "";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
+const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 
 const PROCESSED_FILE = process.env.LINKEDIN_CONNECTIONS_PROCESSED || "/root/.nanobot/linkedin_connections_processed.json";
 
@@ -154,6 +155,132 @@ function findOrCreateCrmContact(
 }
 
 /**
+ * Fetch a full LinkedIn profile via Unipile for enrichment.
+ * Uses public_identifier (vanity slug) or member_id.
+ */
+function fetchLinkedInProfile(identifier: string): Record<string, unknown> | null {
+  try {
+    const result = execFileSync("bash", [LINKEDIN_TOOL, "fetch-profile", identifier], {
+      timeout: 30000,
+      encoding: "utf-8",
+    });
+    return JSON.parse(result);
+  } catch (err) {
+    console.error(`[connections] Profile fetch error for ${identifier}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Enrich a CRM contact using LinkedIn profile data from Unipile.
+ * Updates: jobTitle, city, email, company (find or create).
+ */
+function enrichContactFromLinkedIn(
+  contactId: string,
+  profile: Record<string, unknown>
+): void {
+  try {
+    // Extract current position
+    const workExperience = profile.work_experience as Array<{
+      position?: string;
+      company?: string;
+      company_id?: string;
+      location?: string;
+      end?: string | null;
+    }> || [];
+    const currentJob = workExperience.find((w) => !w.end) || workExperience[0];
+
+    const contactInfo = profile.contact_info as { emails?: string[] } | undefined;
+    const email = contactInfo?.emails?.[0] || "";
+    const location = (profile.location as string) || "";
+    const jobTitle = currentJob?.position || "";
+    const companyName = currentJob?.company || "";
+
+    // Build update payload — only set fields that have values
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const update: Record<string, any> = {};
+
+    if (jobTitle) update.jobTitle = jobTitle;
+    if (location) update.city = location;
+    if (email) update.emails = { primaryEmail: email };
+
+    // Update contact if we have anything
+    if (Object.keys(update).length > 0) {
+      execFileSync("bash", [CRM_TOOL, "update-contact", contactId, JSON.stringify(update)], {
+        timeout: 15000,
+        encoding: "utf-8",
+      });
+      console.log(`[connections] Enriched contact ${contactId}: ${Object.keys(update).join(", ")}`);
+    }
+
+    // Find or create company and link it
+    if (companyName) {
+      linkCompany(contactId, companyName);
+    }
+  } catch (err) {
+    console.error(`[connections] Enrichment error for ${contactId}:`, err);
+  }
+}
+
+/**
+ * Find or create a company and link it to a contact.
+ */
+function linkCompany(contactId: string, companyName: string): void {
+  try {
+    // Search for existing company
+    const searchResult = execFileSync("bash", [CRM_TOOL, "search-companies", companyName], {
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const companies = JSON.parse(searchResult)?.data?.companies || [];
+
+    let companyId: string | null = null;
+
+    for (const c of companies) {
+      if ((c.name || "").toLowerCase() === companyName.toLowerCase()) {
+        companyId = c.id;
+        break;
+      }
+    }
+
+    if (!companyId && companies.length > 0) {
+      // Use first result if close enough
+      companyId = companies[0].id;
+    }
+
+    if (!companyId) {
+      // Create company
+      const createResult = execFileSync(
+        "bash",
+        [CRM_TOOL, "create-company", JSON.stringify({ name: companyName })],
+        { timeout: 15000, encoding: "utf-8" }
+      );
+      const idMatch = createResult.match(/ID:\s+([a-f0-9-]{36})/);
+      if (idMatch) {
+        companyId = idMatch[1];
+      } else {
+        try {
+          const data = JSON.parse(createResult);
+          companyId = data?.data?.createCompany?.id || null;
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    if (companyId) {
+      execFileSync("bash", [CRM_TOOL, "update-contact", contactId, JSON.stringify({ companyId })], {
+        timeout: 15000,
+        encoding: "utf-8",
+      });
+      console.log(`[connections] Linked contact ${contactId} to company ${companyName}`);
+    }
+  } catch (err) {
+    console.error(`[connections] Company link error:`, err);
+  }
+}
+
+/**
  * Main poller — called by cron every 10 minutes.
  * Returns the number of new connections posted to Slack.
  */
@@ -192,6 +319,15 @@ export async function checkNewConnections(slackClient?: WebClient): Promise<numb
 
     // Find or create CRM contact
     const contactId = findOrCreateCrmContact(conn.first_name, conn.last_name, linkedinUrl);
+
+    // Enrich contact from LinkedIn profile
+    if (contactId) {
+      const profileId = conn.public_identifier || conn.member_id;
+      const profile = fetchLinkedInProfile(profileId);
+      if (profile) {
+        enrichContactFromLinkedIn(contactId, profile);
+      }
+    }
 
     // Triage — Tim suggests an opening message
     const triage = await triageNewConnection(
