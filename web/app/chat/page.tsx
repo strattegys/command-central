@@ -19,10 +19,10 @@ export interface AgentConfig {
   online: boolean;
   capabilities: string[];
   connections: { label: string; connected: boolean }[];
-  category: "Utility" | "MarkOps" | "Toys";
+  category: "Utility" | "MarkOps" | "ContentOps" | "Toys";
 }
 
-export const AGENT_CATEGORIES = ["Utility", "MarkOps", "Toys"] as const;
+export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "Toys"] as const;
 
 const AGENTS: AgentConfig[] = [
   {
@@ -78,6 +78,16 @@ const AGENTS: AgentConfig[] = [
       { label: "CRM", connected: true },
     ],
     category: "MarkOps",
+  },
+  {
+    id: "ghost",
+    name: "Ghost",
+    role: "ContentOps",
+    color: "#4A90D9",
+    online: true,
+    capabilities: ["Blog posts", "Copywriting", "Social content", "Content strategy"],
+    connections: [{ label: "Web search", connected: true }],
+    category: "ContentOps",
   },
   {
     id: "rainbow",

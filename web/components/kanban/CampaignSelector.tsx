@@ -8,7 +8,13 @@ interface Campaign {
   stage: string;
   spec: string;
   boardId: string | null;
-  board: { id: string; name: string; description?: string | null; stages?: unknown; transitions?: unknown } | null;
+  board: {
+    id: string;
+    name: string;
+    description?: string | null;
+    stages?: { key: string; label: string; color: string }[];
+    transitions?: Record<string, string[]>;
+  } | null;
 }
 
 const STAGES = ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"] as const;
@@ -160,13 +166,81 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
             </div>
           </div>
 
-          {/* Board */}
+          {/* Board details */}
           {selected.board && (
             <div className="px-4 py-3 border-b border-[var(--border-color)]">
-              <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-1 block">
+              <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-2 block">
                 Board
               </label>
-              <span className="text-xs text-[var(--text-secondary)]">{selected.board.name}</span>
+              <div className="text-xs font-medium text-[var(--text-primary)] mb-1">{selected.board.name}</div>
+              {selected.board.description && (
+                <div className="text-[11px] text-[var(--text-tertiary)] mb-3">{selected.board.description}</div>
+              )}
+
+              {/* Stages */}
+              {selected.board.stages && selected.board.stages.length > 0 && (
+                <div className="mb-3">
+                  <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-1.5 block">
+                    Pipeline Stages
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selected.board.stages.map((s, i) => (
+                      <div key={s.key} className="flex items-center gap-1">
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium"
+                          style={{ backgroundColor: s.color }}
+                        >
+                          {s.label}
+                        </span>
+                        {i < selected.board!.stages!.length - 1 && (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Transitions */}
+              {selected.board.transitions && selected.board.stages && (
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-1.5 block">
+                    Allowed Transitions
+                  </label>
+                  <div className="space-y-1">
+                    {selected.board.stages.map((s) => {
+                      const targets = selected.board!.transitions![s.key];
+                      if (!targets || targets.length === 0) return (
+                        <div key={s.key} className="flex items-center gap-1.5 text-[11px]">
+                          <span className="font-medium text-[var(--text-secondary)]" style={{ color: s.color }}>{s.label}</span>
+                          <span className="text-[var(--text-tertiary)] italic">final stage</span>
+                        </div>
+                      );
+                      const stageMap = Object.fromEntries(selected.board!.stages!.map((st) => [st.key, st]));
+                      return (
+                        <div key={s.key} className="flex items-center gap-1.5 text-[11px] flex-wrap">
+                          <span className="font-medium" style={{ color: s.color }}>{s.label}</span>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                            <polyline points="12 5 19 12 12 19" />
+                          </svg>
+                          {targets.map((t, i) => {
+                            const target = stageMap[t];
+                            return (
+                              <span key={t}>
+                                <span className="text-[var(--text-secondary)]" style={{ color: target?.color }}>{target?.label || t}</span>
+                                {i < targets.length - 1 && <span className="text-[var(--text-tertiary)]">, </span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -89,6 +89,16 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     tools: ["agent_manager", "web_search", "memory", "delegate_task"],
     routines: [],
   },
+  ghost: {
+    id: "ghost",
+    modelName: "gemini-2.5-pro",
+    hasKanban: true,
+    sessionFile: "/root/.ghostbot/sessions/web_govind.jsonl",
+    systemPromptFile: "/root/.ghostbot/system-prompt.md",
+    memoryDir: "/root/.ghostbot/memory",
+    tools: ["web_search", "kanban", "memory"],
+    routines: [],
+  },
 };
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {

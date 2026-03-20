@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { AgentConfig } from "@/app/chat/page";
-import SystemPromptEditor from "@/components/SystemPromptEditor";
+
 
 interface Routine {
   name: string;
@@ -38,11 +38,11 @@ interface AgentInfoPanelProps {
 }
 
 export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanelProps) {
-  const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null);
   const [approvalPhrases, setApprovalPhrases] = useState<string[]>([]);
   const [cronJobs, setCronJobs] = useState<CronJobStatus[]>([]);
+  const [agentSummary, setAgentSummary] = useState("");
   const [promptCollapsed, setPromptCollapsed] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +53,13 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
     setBackendConfig(null);
     setApprovalPhrases([]);
     setCronJobs([]);
+    setAgentSummary("");
     setPromptCollapsed(true);
+
+    fetch(`/api/agent-summary?agent=${agent.id}`)
+      .then((res) => res.json())
+      .then((data) => { if (data.summary) setAgentSummary(data.summary); })
+      .catch(() => {});
 
     fetch(`/api/agent-config?agent=${agent.id}`)
       .then((res) => res.json())
@@ -179,8 +185,8 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
             />
           </div>
           <div className="min-w-0">
-            <div className="font-medium text-sm">{agent.name}</div>
-            <div className="text-xs text-[var(--text-secondary)]">{agent.role}</div>
+            <div className="font-semibold text-lg">{agent.name}</div>
+            <div className="text-sm text-[var(--text-secondary)]">{agent.role}</div>
           </div>
           <div className="flex items-center gap-1.5 ml-3">
             <span className="w-2 h-2 rounded-full" style={{ background: agent.online ? "#1D9E75" : "#555" }} />
@@ -191,63 +197,54 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
         {/* Dashboard content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-          {/* Top row: Connections + Capabilities + Approval Commands */}
-          <div className="grid grid-cols-3 gap-4">
-            {/* Connections */}
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
-              <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Connections</div>
-              <div className="space-y-1.5">
-                {agent.connections.map((c) => (
-                  <div key={c.label} className="flex items-center gap-2 text-xs">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.connected ? "#1D9E75" : "#888" }} />
-                    <span className="text-[var(--text-primary)]">{c.label}</span>
-                    <span className="ml-auto text-[11px]" style={{ color: c.connected ? "#1D9E75" : "#888" }}>
-                      {c.connected ? "Connected" : "Off"}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          {/* Agent Summary */}
+          {agentSummary && (
+            <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              {agentSummary}
             </div>
+          )}
 
-            {/* Capabilities */}
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
-              <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Capabilities</div>
-              <div className="flex flex-wrap gap-1">
-                {agent.capabilities.map((cap) => (
-                  <span key={cap} className="text-[11px] px-2 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]">
-                    {cap}
+          {/* Capabilities (consolidated) */}
+          <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
+            <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Capabilities</div>
+            {/* Connections with status */}
+            <div className="space-y-1.5 mb-2">
+              {agent.connections.map((c) => (
+                <div key={c.label} className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.connected ? "#1D9E75" : "#888" }} />
+                  <span className="text-[var(--text-primary)]">{c.label}</span>
+                  <span className="ml-auto text-[11px]" style={{ color: c.connected ? "#1D9E75" : "#888" }}>
+                    {c.connected ? "Connected" : "Off"}
                   </span>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-
-            {/* Backend Config / Tools */}
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)]">
-              <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Tools</div>
-              {backendConfig ? (
+            {/* Capability + tool tags */}
+            <div className="pt-2 border-t border-[var(--border-color)] flex flex-wrap gap-1">
+              {agent.capabilities.map((cap) => (
+                <span key={cap} className="text-[11px] px-2 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]">
+                  {cap}
+                </span>
+              ))}
+              {backendConfig?.tools.map((t) => (
+                <span key={t} className="text-[11px] px-2 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono">
+                  {t}
+                </span>
+              ))}
+            </div>
+            {/* Approval commands */}
+            {approvalPhrases.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-[var(--border-color)]">
+                <div className="text-[10px] text-[var(--text-tertiary)] mb-1">Approval commands</div>
                 <div className="flex flex-wrap gap-1">
-                  {backendConfig.tools.map((t) => (
-                    <span key={t} className="text-[11px] px-2 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]">
-                      {t}
+                  {approvalPhrases.map((phrase) => (
+                    <span key={phrase} className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] font-mono" style={{ color: "#1D9E75" }}>
+                      &quot;{phrase}&quot;
                     </span>
                   ))}
                 </div>
-              ) : (
-                <div className="text-xs text-[var(--text-tertiary)]">Loading...</div>
-              )}
-              {approvalPhrases.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-[var(--border-color)]">
-                  <div className="text-[10px] text-[var(--text-tertiary)] mb-1">Approval commands</div>
-                  <div className="flex flex-wrap gap-1">
-                    {approvalPhrases.map((phrase) => (
-                      <span key={phrase} className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] font-mono" style={{ color: "#1D9E75" }}>
-                        &quot;{phrase}&quot;
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Routines / Cron Jobs + Heartbeat (2-column) */}
@@ -420,12 +417,6 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
                 </svg>
                 System Prompt
               </button>
-              <button
-                onClick={() => setShowPromptEditor(true)}
-                className="text-[10px] px-2 py-0.5 rounded bg-[var(--accent-green)] text-white hover:brightness-110"
-              >
-                Edit
-              </button>
             </div>
             {!promptCollapsed && (
               <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)] text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
@@ -436,20 +427,6 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
         </div>
       </div>
 
-      {/* System Prompt Editor */}
-      {showPromptEditor && (
-        <SystemPromptEditor
-          agentId={agent.id}
-          agentName={agent.name}
-          onClose={() => {
-            setShowPromptEditor(false);
-            fetch(`/api/system-prompt?agent=${agent.id}`)
-              .then((res) => res.json())
-              .then((data) => { if (data.prompt) setPromptText(data.prompt); })
-              .catch(() => {});
-          }}
-        />
-      )}
     </>
   );
 }
