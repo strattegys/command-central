@@ -118,6 +118,22 @@ export default function ChatPage() {
     setAvatarOverrides((prev) => ({ ...prev, [agentId]: newUrl }));
   }, []);
 
+  // On mount, check for custom uploaded avatars
+  useEffect(() => {
+    AGENTS.forEach((a) => {
+      fetch(`/api/agent-avatar?id=${a.id}`, { method: "HEAD" })
+        .then((res) => {
+          if (res.ok) {
+            setAvatarOverrides((prev) => ({
+              ...prev,
+              [a.id]: `/api/agent-avatar?id=${a.id}&v=${Date.now()}`,
+            }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, []);
+
   const agent = agents.find((a) => a.id === activeAgent) || agents[0];
 
   // Filter messages by search query
