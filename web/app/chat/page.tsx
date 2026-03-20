@@ -128,10 +128,10 @@ export default function ChatPage() {
     setAvatarOverrides((prev) => ({ ...prev, [agentId]: newUrl }));
   }, []);
 
-  // On mount, check for custom uploaded avatars
+  // On mount, check for custom uploaded avatars (cache-bust to avoid stale 200s)
   useEffect(() => {
     AGENTS.forEach((a) => {
-      fetch(`/api/agent-avatar?id=${a.id}`, { method: "HEAD" })
+      fetch(`/api/agent-avatar?id=${a.id}&_=${Date.now()}`, { method: "HEAD", cache: "no-store" })
         .then((res) => {
           if (res.ok) {
             setAvatarOverrides((prev) => ({
