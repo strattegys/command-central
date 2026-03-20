@@ -12,32 +12,30 @@ export interface Board {
   transitions: Record<string, string[]>;
 }
 
-export interface CampaignWithBoard {
+export type WorkflowItemType = "person" | "content";
+
+export interface WorkflowWithBoard {
   id: string;
   name: string;
-  stage: string;
+  stage: string; // workflow status: PLANNING | ACTIVE | PAUSED | COMPLETED
   spec: string;
+  itemType: WorkflowItemType;
   boardId: string | null;
   board: Board | null;
 }
 
-/** Fallback stages when a campaign has no board assigned */
-export const DEFAULT_STAGES: StageConfig[] = [
-  { key: "TARGET", label: "Target", color: "#6b8a9e" },
-  { key: "INITIATED", label: "Initiated", color: "#2b5278" },
-  { key: "ACCEPTED", label: "Accepted", color: "#534AB7" },
-  { key: "MESSAGED", label: "Messaged", color: "#7c5bbf" },
-  { key: "ENGAGED", label: "Engaged", color: "#1D9E75" },
-  { key: "PROSPECT", label: "Prospect", color: "#D85A30" },
-  { key: "CONVERTED", label: "Converted", color: "#22c55e" },
-];
-
-export const DEFAULT_TRANSITIONS: Record<string, string[]> = {
-  TARGET: ["INITIATED"],
-  INITIATED: ["ACCEPTED", "TARGET"],
-  ACCEPTED: ["MESSAGED", "TARGET"],
-  MESSAGED: ["ENGAGED", "ACCEPTED"],
-  ENGAGED: ["PROSPECT", "MESSAGED"],
-  PROSPECT: ["CONVERTED", "ENGAGED"],
-  CONVERTED: [],
-};
+/** A single item on the kanban board, polymorphic via sourceType */
+export interface WorkflowItem {
+  id: string; // _workflow_item row ID
+  workflowId: string;
+  stage: string; // board stage key (TARGET, IDEA, etc.)
+  sourceType: WorkflowItemType;
+  sourceId: string;
+  position: number;
+  // Denormalized display fields populated by API join:
+  title: string; // person: "First Last", content: title
+  subtitle: string; // person: jobTitle, content: contentType
+  extra: string; // person: companyName, content: url
+  linkedinUrl?: string; // person only
+  email?: string; // person only
+}

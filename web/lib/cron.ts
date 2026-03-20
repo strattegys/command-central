@@ -174,7 +174,7 @@ export function initCronJobs(): void {
       name: "Heartbeat",
       schedule: "*/30 * * * *",
       description:
-        "Checks unactioned LinkedIn alerts, due reminders, failed scheduled messages, campaign health",
+        "Checks unactioned LinkedIn alerts, due reminders, failed scheduled messages, workflow health",
       agentId: "tim",
       enabled: true,
     },

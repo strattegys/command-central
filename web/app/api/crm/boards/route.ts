@@ -79,12 +79,12 @@ export async function DELETE(request: NextRequest) {
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
     const refs = await query(
-      `SELECT id FROM "_campaign" WHERE "boardId" = $1 AND "deletedAt" IS NULL LIMIT 1`,
+      `SELECT id FROM "_workflow" WHERE "boardId" = $1 AND "deletedAt" IS NULL LIMIT 1`,
       [id]
     );
     if (refs.length > 0) {
       return NextResponse.json(
-        { error: "Cannot delete board: campaigns still reference it" },
+        { error: "Cannot delete board: workflows still reference it" },
         { status: 409 }
       );
     }

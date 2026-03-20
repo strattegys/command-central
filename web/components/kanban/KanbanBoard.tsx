@@ -1,37 +1,37 @@
 import KanbanColumn from "./KanbanColumn";
-import type { Person, PersonAlert } from "./KanbanCard";
-import { DEFAULT_STAGES, type StageConfig } from "@/lib/board-types";
+import type { ItemAlert } from "./KanbanCard";
+import type { StageConfig, WorkflowItem } from "@/lib/board-types";
 
 interface KanbanBoardProps {
-  stages?: StageConfig[];
+  stages: StageConfig[];
   transitions?: Record<string, string[]>;
-  people: Person[];
-  alerts: Record<string, PersonAlert>;
-  selectedPersonId: string | null;
-  onSelectPerson: (person: Person) => void;
+  items: WorkflowItem[];
+  alerts: Record<string, ItemAlert>;
+  selectedItemId: string | null;
+  onSelectItem: (item: WorkflowItem) => void;
 }
 
 export default function KanbanBoard({
-  stages = DEFAULT_STAGES,
+  stages,
   transitions,
-  people,
+  items,
   alerts,
-  selectedPersonId,
-  onSelectPerson,
+  selectedItemId,
+  onSelectItem,
 }: KanbanBoardProps) {
-  // Group people by stage
-  const grouped = new Map<string, Person[]>();
+  // Group items by stage
+  const grouped = new Map<string, WorkflowItem[]>();
   for (const stage of stages) {
     grouped.set(stage.key, []);
   }
-  for (const person of people) {
-    const key = person.stage || stages[0]?.key || "TARGET";
+  for (const item of items) {
+    const key = item.stage || stages[0]?.key || "TARGET";
     const list = grouped.get(key);
     if (list) {
-      list.push(person);
+      list.push(item);
     } else {
       // Unknown stage — put in first column
-      grouped.get(stages[0]?.key || "TARGET")?.push(person);
+      grouped.get(stages[0]?.key || "TARGET")?.push(item);
     }
   }
 
@@ -41,10 +41,10 @@ export default function KanbanBoard({
         <KanbanColumn
           key={stage.key}
           stage={stage}
-          people={grouped.get(stage.key) || []}
+          items={grouped.get(stage.key) || []}
           alerts={alerts}
-          selectedPersonId={selectedPersonId}
-          onSelectPerson={onSelectPerson}
+          selectedItemId={selectedItemId}
+          onSelectItem={onSelectItem}
         />
       ))}
     </div>

@@ -1,31 +1,19 @@
-export interface PersonAlert {
+import type { WorkflowItem } from "@/lib/board-types";
+
+export interface ItemAlert {
   type: "linkedin_reply" | "linkedin_accepted";
   title: string;
   createdAt: string;
 }
 
-export interface Person {
-  id: string;
-  firstName: string;
-  lastName: string;
-  jobTitle: string;
-  email: string;
-  linkedinUrl: string;
-  stage: string;
-  city: string;
-  companyName: string;
-}
-
 interface KanbanCardProps {
-  person: Person;
-  alert?: PersonAlert;
+  item: WorkflowItem;
+  alert?: ItemAlert;
   isSelected: boolean;
   onClick: () => void;
 }
 
-export default function KanbanCard({ person, alert, isSelected, onClick }: KanbanCardProps) {
-  const name = [person.firstName, person.lastName].filter(Boolean).join(" ") || "Unknown";
-
+export default function KanbanCard({ item, alert, isSelected, onClick }: KanbanCardProps) {
   return (
     <button
       onClick={onClick}
@@ -36,7 +24,7 @@ export default function KanbanCard({ person, alert, isSelected, onClick }: Kanba
       }`}
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-sm font-medium text-[var(--text-primary)] truncate flex-1">{name}</span>
+        <span className="text-sm font-medium text-[var(--text-primary)] truncate flex-1">{item.title}</span>
         {alert && (
           <span
             className={`shrink-0 w-2 h-2 rounded-full ${
@@ -50,19 +38,21 @@ export default function KanbanCard({ person, alert, isSelected, onClick }: Kanba
           />
         )}
       </div>
-      {person.companyName && (
+      {item.extra && (
         <div className="text-xs text-[var(--text-secondary)] mt-0.5 truncate">
-          {person.companyName}
+          {item.extra}
         </div>
       )}
-      {person.jobTitle && (
+      {item.subtitle && (
         <div className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate">
-          {person.jobTitle}
+          {item.subtitle}
         </div>
       )}
-      {person.linkedinUrl && (
+
+      {/* Person-specific: LinkedIn link */}
+      {item.sourceType === "person" && item.linkedinUrl && (
         <a
-          href={person.linkedinUrl}
+          href={item.linkedinUrl}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -74,6 +64,26 @@ export default function KanbanCard({ person, alert, isSelected, onClick }: Kanba
           LinkedIn
         </a>
       )}
+
+      {/* Content-specific: URL link */}
+      {item.sourceType === "content" && item.extra && (
+        <a
+          href={item.extra}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-[10px] text-[var(--accent-blue)] hover:underline mt-1 inline-flex items-center gap-1 truncate"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+          Link
+        </a>
+      )}
+
+      {/* Person alert badge */}
       {alert && (
         <div className={`text-[10px] mt-1 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
           alert.type === "linkedin_reply"

@@ -1,6 +1,6 @@
 /**
  * LinkedIn message triage via Tim's AI.
- * Tim analyzes the sender (CRM person summary, campaign context) and suggests a reply.
+ * Tim analyzes the sender (CRM person summary, workflow context) and suggests a reply.
  */
 import { chat } from "./gemini";
 import { dirname } from "path";
@@ -8,7 +8,7 @@ import { getAgentConfig } from "./agent-config";
 
 export interface TriageResult {
   personSummary: string;
-  campaignInfo: string;
+  workflowInfo: string;
   suggestedReply: string;
 }
 
@@ -31,7 +31,7 @@ export async function triageLinkedInMessage(
 ): Promise<TriageResult> {
   const fallback: TriageResult = {
     personSummary: "",
-    campaignInfo: "",
+    workflowInfo: "",
     suggestedReply: "",
   };
 
@@ -47,11 +47,11 @@ export async function triageLinkedInMessage(
     ``,
     `Instructions:`,
     `1. Look up this person in the CRM using their contact ID (use get-person ${contactId})`,
-    `2. Check if they have an active campaign (use get-campaign-context ${contactId})`,
+    `2. Check if they have an active workflow (use get-workflow-context ${contactId})`,
     `3. Respond in EXACTLY this format with no extra text:`,
     ``,
     `PERSON_SUMMARY: <1-2 sentence summary of who they are — role, company, key context>`,
-    `CAMPAIGN_INFO: <campaign name and stage if any, otherwise "None">`,
+    `CAMPAIGN_INFO: <workflow name and stage if any, otherwise "None">`,
     `SUGGESTED_REPLY: <a short, natural reply to their message based on context>`,
   ]
     .filter((line) => line !== undefined)
@@ -83,7 +83,7 @@ export async function triageNewConnection(
 ): Promise<TriageResult> {
   const fallback: TriageResult = {
     personSummary: headline ? `${name} — ${headline}` : name,
-    campaignInfo: "",
+    workflowInfo: "",
     suggestedReply: "",
   };
 
@@ -101,8 +101,8 @@ export async function triageNewConnection(
   if (contactId) {
     promptLines.push(
       `1. Look up this person in the CRM using their contact ID (use get-person ${contactId})`,
-      `2. Check if they have an active campaign (use get-campaign-context ${contactId})`,
-      `3. Based on their profile, role, and any campaign context, suggest a warm opening message.`,
+      `2. Check if they have an active workflow (use get-workflow-context ${contactId})`,
+      `3. Based on their profile, role, and any workflow context, suggest a warm opening message.`,
     );
   } else {
     promptLines.push(
@@ -116,7 +116,7 @@ export async function triageNewConnection(
     `Respond in EXACTLY this format with no extra text:`,
     ``,
     `PERSON_SUMMARY: <1-2 sentence summary of who they are — role, company, key context>`,
-    `CAMPAIGN_INFO: <campaign name and stage if any, otherwise "None">`,
+    `CAMPAIGN_INFO: <workflow name and stage if any, otherwise "None">`,
     `SUGGESTED_REPLY: <a short, warm opening message to initiate conversation>`,
   );
 
@@ -146,7 +146,7 @@ function parseTriageResponse(response: string): TriageResult {
 
   return {
     personSummary: extract("PERSON_SUMMARY"),
-    campaignInfo: extract("CAMPAIGN_INFO"),
+    workflowInfo: extract("CAMPAIGN_INFO"),
     suggestedReply: extract("SUGGESTED_REPLY"),
   };
 }

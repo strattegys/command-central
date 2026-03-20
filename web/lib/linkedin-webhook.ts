@@ -128,9 +128,9 @@ export async function handleUnipileWebhook(
     linkedinUrl
   );
 
-  // Deliver notification — campaign members just get CRM note (Kanban shows it),
-  // non-campaign members get Tim messaging Govind
-  const hasCampaign = triage.campaignInfo && triage.campaignInfo !== "None";
+  // Deliver notification — workflow members just get CRM note (Kanban shows it),
+  // non-workflow members get Tim messaging Govind
+  const hasWorkflow = triage.workflowInfo && triage.workflowInfo !== "None";
 
   // Always write web notification
   writeNotification(
@@ -144,8 +144,8 @@ export async function handleUnipileWebhook(
     "linkedin_inbound"
   );
 
-  if (!hasCampaign) {
-    // Non-campaign: Tim proactively messages Govind
+  if (!hasWorkflow) {
+    // Non-workflow: Tim proactively messages Govind
     try {
       const { autonomousChat } = await import("./gemini");
       const prompt = [

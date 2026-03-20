@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import KanbanCard, { type Person, type PersonAlert } from "./KanbanCard";
-import type { StageConfig } from "@/lib/board-types";
+import KanbanCard, { type ItemAlert } from "./KanbanCard";
+import type { StageConfig, WorkflowItem } from "@/lib/board-types";
 
 export type { StageConfig };
 
@@ -10,28 +10,29 @@ const PAGE_SIZE = 6;
 
 interface KanbanColumnProps {
   stage: StageConfig;
-  people: Person[];
-  alerts: Record<string, PersonAlert>;
-  selectedPersonId: string | null;
-  onSelectPerson: (person: Person) => void;
+  items: WorkflowItem[];
+  alerts: Record<string, ItemAlert>;
+  selectedItemId: string | null;
+  onSelectItem: (item: WorkflowItem) => void;
 }
 
 export default function KanbanColumn({
   stage,
-  people,
+  items,
   alerts,
-  selectedPersonId,
-  onSelectPerson,
+  selectedItemId,
+  onSelectItem,
 }: KanbanColumnProps) {
   const [page, setPage] = useState(0);
-  const alertCount = people.filter((p) => alerts[p.id]).length;
+  // Alert count uses sourceId since alerts are keyed by person ID
+  const alertCount = items.filter((i) => alerts[i.sourceId]).length;
 
-  // Sort: people with alerts first, then alphabetical
-  const sorted = [...people].sort((a, b) => {
-    const aAlert = alerts[a.id] ? 0 : 1;
-    const bAlert = alerts[b.id] ? 0 : 1;
+  // Sort: items with alerts first, then alphabetical by title
+  const sorted = [...items].sort((a, b) => {
+    const aAlert = alerts[a.sourceId] ? 0 : 1;
+    const bAlert = alerts[b.sourceId] ? 0 : 1;
     if (aAlert !== bAlert) return aAlert - bAlert;
-    return (a.firstName || "").localeCompare(b.firstName || "");
+    return (a.title || "").localeCompare(b.title || "");
   });
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
@@ -50,24 +51,24 @@ export default function KanbanColumn({
             {alertCount}
           </span>
         )}
-        <span className="text-xs text-[var(--text-tertiary)] ml-auto">{people.length}</span>
+        <span className="text-xs text-[var(--text-tertiary)] ml-auto">{items.length}</span>
       </div>
 
       {/* Cards — fixed 6-row grid so all cards are identical height */}
       <div className="grid grid-rows-6 flex-1 min-h-0 px-1 gap-2 overflow-hidden">
-        {visible.map((person) => (
-          <div key={person.id} className="min-h-0 overflow-hidden">
+        {visible.map((item) => (
+          <div key={item.id} className="min-h-0 overflow-hidden">
             <KanbanCard
-              person={person}
-              alert={alerts[person.id]}
-              isSelected={person.id === selectedPersonId}
-              onClick={() => onSelectPerson(person)}
+              item={item}
+              alert={alerts[item.sourceId]}
+              isSelected={item.id === selectedItemId}
+              onClick={() => onSelectItem(item)}
             />
           </div>
         ))}
-        {people.length === 0 && (
+        {items.length === 0 && (
           <div className="text-xs text-[var(--text-tertiary)] text-center py-4 italic flex-1 flex items-center justify-center">
-            No contacts
+            No items
           </div>
         )}
       </div>

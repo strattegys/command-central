@@ -3,41 +3,41 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import KanbanBoard from "@/components/kanban/KanbanBoard";
-import CampaignSelector, { type Campaign } from "@/components/kanban/CampaignSelector";
-import ContactDetailPanel from "@/components/kanban/ContactDetailPanel";
-import type { Person, PersonAlert } from "@/components/kanban/KanbanCard";
-import type { StageConfig } from "@/lib/board-types";
+import WorkflowSelector from "@/components/kanban/WorkflowSelector";
+import ItemDetailPanel from "@/components/kanban/ItemDetailPanel";
+import type { ItemAlert } from "@/components/kanban/KanbanCard";
+import type { StageConfig, WorkflowItem, WorkflowWithBoard } from "@/lib/board-types";
 
 export default function KanbanPage() {
-  const [campaignId, setCampaignId] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("kanban_campaign") || "";
+  const [workflowId, setWorkflowId] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("kanban_workflow") || "";
     return "";
   });
-  const [people, setPeople] = useState<Person[]>([]);
-  const [alerts, setAlerts] = useState<Record<string, PersonAlert>>({});
-  const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
+  const [items, setItems] = useState<WorkflowItem[]>([]);
+  const [alerts, setAlerts] = useState<Record<string, ItemAlert>>({});
+  const [selectedItem, setSelectedItem] = useState<WorkflowItem | null>(null);
   const [loading, setLoading] = useState(false);
-  const [boardStages, setBoardStages] = useState<StageConfig[] | undefined>();
+  const [boardStages, setBoardStages] = useState<StageConfig[]>([]);
   const [boardTransitions, setBoardTransitions] = useState<Record<string, string[]> | undefined>();
 
-  const fetchPeople = useCallback(async (id: string) => {
+  const fetchItems = useCallback(async (id: string) => {
     if (!id) {
-      setPeople([]);
+      setItems([]);
       setAlerts({});
       return;
     }
     setLoading(true);
     try {
-      const [peopleRes, alertsRes] = await Promise.all([
-        fetch(`/api/crm/people?campaignId=${id}`),
-        fetch(`/api/crm/alerts?campaignId=${id}`),
+      const [itemsRes, alertsRes] = await Promise.all([
+        fetch(`/api/crm/workflow-items?workflowId=${id}`),
+        fetch(`/api/crm/alerts?workflowId=${id}`),
       ]);
-      const peopleData = await peopleRes.json();
+      const itemsData = await itemsRes.json();
       const alertsData = await alertsRes.json();
-      setPeople(peopleData.people || []);
+      setItems(itemsData.items || []);
       setAlerts(alertsData.alerts || {});
     } catch {
-      setPeople([]);
+      setItems([]);
       setAlerts({});
     } finally {
       setLoading(false);
@@ -45,17 +45,17 @@ export default function KanbanPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedPerson(null);
-    fetchPeople(campaignId);
-    if (campaignId) localStorage.setItem("kanban_campaign", campaignId);
-  }, [campaignId, fetchPeople]);
+    setSelectedItem(null);
+    fetchItems(workflowId);
+    if (workflowId) localStorage.setItem("kanban_workflow", workflowId);
+  }, [workflowId, fetchItems]);
 
-  const handleCampaignLoaded = useCallback((campaign: Campaign | null) => {
-    if (campaign?.board) {
-      setBoardStages(campaign.board.stages as StageConfig[] | undefined);
-      setBoardTransitions(campaign.board.transitions as Record<string, string[]> | undefined);
+  const handleWorkflowLoaded = useCallback((workflow: WorkflowWithBoard | null) => {
+    if (workflow?.board) {
+      setBoardStages((workflow.board.stages as StageConfig[]) || []);
+      setBoardTransitions(workflow.board.transitions as Record<string, string[]> | undefined);
     } else {
-      setBoardStages(undefined);
+      setBoardStages([]);
       setBoardTransitions(undefined);
     }
   }, []);
@@ -77,10 +77,10 @@ export default function KanbanPage() {
 
         <h1 className="text-sm font-semibold text-[var(--text-primary)]">Pipeline</h1>
 
-        <CampaignSelector
-          selectedId={campaignId}
-          onSelect={setCampaignId}
-          onCampaignLoaded={handleCampaignLoaded}
+        <WorkflowSelector
+          selectedId={workflowId}
+          onSelect={setWorkflowId}
+          onWorkflowLoaded={handleWorkflowLoaded}
         />
 
         {loading && (
@@ -88,35 +88,35 @@ export default function KanbanPage() {
         )}
 
         <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {people.length > 0 && `${people.length} contacts`}
+          {items.length > 0 && `${items.length} items`}
         </span>
       </div>
 
       {/* Board */}
-      {!campaignId ? (
+      {!workflowId ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-[var(--text-tertiary)]">Select a campaign to view the pipeline</p>
+          <p className="text-sm text-[var(--text-tertiary)]">Select a workflow to view the pipeline</p>
         </div>
-      ) : people.length === 0 && !loading ? (
+      ) : items.length === 0 && !loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-[var(--text-tertiary)]">No contacts in this campaign</p>
+          <p className="text-sm text-[var(--text-tertiary)]">No items in this workflow</p>
         </div>
       ) : (
         <KanbanBoard
           stages={boardStages}
           transitions={boardTransitions}
-          people={people}
+          items={items}
           alerts={alerts}
-          selectedPersonId={selectedPerson?.id ?? null}
-          onSelectPerson={setSelectedPerson}
+          selectedItemId={selectedItem?.id ?? null}
+          onSelectItem={setSelectedItem}
         />
       )}
 
       {/* Detail panel */}
-      {selectedPerson && (
-        <ContactDetailPanel
-          person={selectedPerson}
-          onClose={() => setSelectedPerson(null)}
+      {selectedItem && (
+        <ItemDetailPanel
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
         />
       )}
     </div>

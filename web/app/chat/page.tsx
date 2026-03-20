@@ -57,7 +57,7 @@ const AGENTS: AgentConfig[] = [
     color: "#1D9E75",
     avatar: "/tim-avatar.png?v=2",
     online: true,
-    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Campaigns"],
+    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Workflows"],
     connections: [
       { label: "CRM", connected: true },
       { label: "LinkedIn", connected: true },

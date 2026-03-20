@@ -87,7 +87,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
           { name: "LinkedIn Alerts", desc: "Flags inbound messages with no user response in last 2 hours", priority: "high" },
           { name: "Memory Reminders", desc: "Scans memory for follow-ups, todos, and deadlines due today", priority: "medium" },
           { name: "Scheduled Messages", desc: "Detects failed or overdue scheduled LinkedIn messages", priority: "high" },
-          { name: "Campaign Health", desc: "Checks for empty or inactive campaigns in CRM", priority: "low" },
+          { name: "Workflow Health", desc: "Checks for empty or inactive workflows in CRM", priority: "low" },
         ]
       : [];
 

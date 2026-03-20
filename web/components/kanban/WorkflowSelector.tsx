@@ -1,21 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-
-interface Campaign {
-  id: string;
-  name: string;
-  stage: string;
-  spec: string;
-  boardId: string | null;
-  board: {
-    id: string;
-    name: string;
-    description?: string | null;
-    stages?: { key: string; label: string; color: string }[];
-    transitions?: Record<string, string[]>;
-  } | null;
-}
+import type { WorkflowWithBoard, WorkflowItemType } from "@/lib/board-types";
 
 const STAGES = ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"] as const;
 
@@ -26,26 +12,29 @@ const STAGE_COLORS: Record<string, string> = {
   COMPLETED: "#22c55e",
 };
 
-interface CampaignSelectorProps {
+const ITEM_TYPE_LABELS: Record<WorkflowItemType, string> = {
+  person: "People",
+  content: "Content",
+};
+
+interface WorkflowSelectorProps {
   selectedId: string;
   onSelect: (id: string) => void;
-  onCampaignLoaded?: (campaign: Campaign | null) => void;
+  onWorkflowLoaded?: (workflow: WorkflowWithBoard | null) => void;
 }
 
-export type { Campaign };
-
-export default function CampaignSelector({ selectedId, onSelect, onCampaignLoaded }: CampaignSelectorProps) {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoaded }: WorkflowSelectorProps) {
+  const [workflows, setWorkflows] = useState<WorkflowWithBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPopup, setShowPopup] = useState(false);
   const [saving, setSaving] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/crm/campaigns")
+    fetch("/api/crm/workflows")
       .then((r) => r.json())
-      .then((data) => setCampaigns(data.campaigns || []))
-      .catch(() => setCampaigns([]))
+      .then((data) => setWorkflows(data.workflows || []))
+      .catch(() => setWorkflows([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -61,25 +50,25 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
     return () => document.removeEventListener("mousedown", handler);
   }, [showPopup]);
 
-  const selected = campaigns.find((c) => c.id === selectedId);
+  const selected = workflows.find((w) => w.id === selectedId);
 
-  // Notify parent when the selected campaign (with board data) is resolved
+  // Notify parent when the selected workflow (with board data) is resolved
   useEffect(() => {
-    onCampaignLoaded?.(selected ?? null);
-  }, [selected, onCampaignLoaded]);
+    onWorkflowLoaded?.(selected ?? null);
+  }, [selected, onWorkflowLoaded]);
 
   const handleStageChange = async (newStage: string) => {
     if (!selected || saving) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/crm/campaigns", {
+      const res = await fetch("/api/crm/workflows", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: selected.id, stage: newStage }),
       });
       if (res.ok) {
-        setCampaigns((prev) =>
-          prev.map((c) => (c.id === selected.id ? { ...c, stage: newStage } : c))
+        setWorkflows((prev) =>
+          prev.map((w) => (w.id === selected.id ? { ...w, stage: newStage } : w))
         );
       }
     } finally {
@@ -95,10 +84,10 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
         disabled={loading}
         className="bg-[var(--bg-input)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-1.5 border border-[var(--border-color)] outline-none cursor-pointer min-w-[200px]"
       >
-        <option value="">{loading ? "Loading campaigns..." : "Select a campaign"}</option>
-        {campaigns.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} ({c.stage})
+        <option value="">{loading ? "Loading workflows..." : "Select a workflow"}</option>
+        {workflows.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name} ({w.stage})
           </option>
         ))}
       </select>
@@ -108,7 +97,7 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
         <button
           onClick={() => setShowPopup(!showPopup)}
           className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] cursor-pointer"
-          title="Campaign details"
+          title="Workflow details"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -126,7 +115,12 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
-            <h2 className="text-sm font-semibold text-[var(--text-primary)]">{selected.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-[var(--text-primary)]">{selected.name}</h2>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-primary)] text-[var(--text-tertiary)] font-medium">
+                {ITEM_TYPE_LABELS[selected.itemType] || selected.itemType}
+              </span>
+            </div>
             <button
               onClick={() => setShowPopup(false)}
               className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -247,7 +241,7 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
           {/* Spec */}
           <div className="px-4 py-3 flex-1 overflow-y-auto min-h-0">
             <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-2 block">
-              Campaign Spec
+              Workflow Spec
             </label>
             {selected.spec ? (
               <div className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
@@ -255,7 +249,7 @@ export default function CampaignSelector({ selectedId, onSelect, onCampaignLoade
               </div>
             ) : (
               <div className="text-xs text-[var(--text-tertiary)] italic">
-                No spec defined for this campaign.
+                No spec defined for this workflow.
               </div>
             )}
           </div>

@@ -13,7 +13,7 @@ import { writeNotification } from "./notifications";
  * 1. Unactioned LinkedIn alerts (inbound messages not yet responded to)
  * 2. Memory-based reminders (follow-ups, tasks with dates)
  * 3. Failed scheduled messages
- * 4. Campaign health (stale contacts, inactive campaigns)
+ * 4. Workflow health (stale items, inactive workflows)
  *
  * Findings are delivered via:
  * - Notification bell (web_notifications.jsonl)
@@ -26,7 +26,7 @@ const TOOL_SCRIPTS_PATH =
   process.env.TOOL_SCRIPTS_PATH || join(process.cwd(), "..", ".nanobot", "tools");
 
 export interface HeartbeatFinding {
-  category: string; // "linkedin" | "reminder" | "schedule" | "campaign"
+  category: string; // "linkedin" | "reminder" | "schedule" | "workflow"
   title: string;
   detail: string;
   priority: "high" | "medium" | "low";
@@ -281,17 +281,17 @@ function checkScheduledMessages(): HeartbeatFinding[] {
 }
 
 /**
- * Check 4: Campaign health
+ * Check 4: Workflow health
  *
  * Uses CRM tool to check:
- * - Active campaigns with no recent activity
- * - Campaign members not contacted in 7+ days
+ * - Active workflows with no recent activity
+ * - Workflow items not progressed in 7+ days
  */
-function checkCampaignHealth(): HeartbeatFinding[] {
+function checkWorkflowHealth(): HeartbeatFinding[] {
   const findings: HeartbeatFinding[] = [];
 
   try {
-    // List campaigns
+    // List workflows (still uses list-campaigns on server until crm.sh is updated)
     const result = execFileSync(
       join(TOOL_SCRIPTS_PATH, "twenty_crm_enhanced.sh"),
       ["list-campaigns"],
@@ -306,22 +306,22 @@ function checkCampaignHealth(): HeartbeatFinding[] {
       }
     );
 
-    if (!result || result.includes("No campaigns")) return findings;
+    if (!result || result.includes("No campaigns") && result.includes("No workflows")) return findings;
 
-    // Parse campaign IDs from output
-    const campaignIds: string[] = [];
+    // Parse workflow IDs from output
+    const workflowIds: string[] = [];
     const idMatches = result.matchAll(/id[:\s]+([a-f0-9-]{36})/gi);
     for (const match of idMatches) {
-      campaignIds.push(match[1]);
+      workflowIds.push(match[1]);
     }
 
-    // For each campaign, check member count
-    for (const campaignId of campaignIds.slice(0, 3)) {
+    // For each workflow, check member count
+    for (const workflowId of workflowIds.slice(0, 3)) {
       // limit to 3 to avoid timeout
       try {
         const members = execFileSync(
           join(TOOL_SCRIPTS_PATH, "twenty_crm_enhanced.sh"),
-          ["list-campaign-members", campaignId],
+          ["list-campaign-members", workflowId],
           {
             timeout: 15000,
             encoding: "utf-8",
@@ -336,18 +336,18 @@ function checkCampaignHealth(): HeartbeatFinding[] {
 
         if (members.includes("0 members") || members.includes("No members")) {
           findings.push({
-            category: "campaign",
-            title: "Empty Campaign",
-            detail: `Campaign ${campaignId.slice(0, 8)} has no enrolled members`,
+            category: "workflow",
+            title: "Empty Workflow",
+            detail: `Workflow ${workflowId.slice(0, 8)} has no items`,
             priority: "low",
           });
         }
       } catch {
-        // Skip individual campaign check errors
+        // Skip individual workflow check errors
       }
     }
   } catch (error) {
-    console.error("[heartbeat] Campaign check error:", error);
+    console.error("[heartbeat] Workflow check error:", error);
   }
 
   return findings;
@@ -428,7 +428,7 @@ export async function runTimHeartbeat(
     ...checkLinkedInAlerts(),
     ...checkReminders(),
     ...checkScheduledMessages(),
-    ...checkCampaignHealth(),
+    ...checkWorkflowHealth(),
     ...checkCompletedTasks(),
   ];
 
