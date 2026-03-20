@@ -85,18 +85,50 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
         ]
       : [];
 
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 512;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(
+          (blob) => blob ? resolve(blob) : reject(new Error("Compression failed")),
+          "image/png",
+          0.85
+        );
+      };
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert("Image must be under 25MB");
+      return;
+    }
+
     setUploading(true);
     try {
+      const compressed = await compressImage(file);
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", new File([compressed], `${agent.id}-avatar.png`, { type: "image/png" }));
       form.append("agentId", agent.id);
       const res = await fetch("/api/agent-avatar", { method: "POST", body: form });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
-        console.error("Avatar upload failed:", err);
+        alert(`Upload failed: ${err.error || "Unknown error"}`);
         return;
       }
       const data = await res.json();
@@ -104,7 +136,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
         onAvatarChange(agent.id, data.avatarUrl);
       }
     } catch (err) {
-      console.error("Avatar upload error:", err);
+      alert(`Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";

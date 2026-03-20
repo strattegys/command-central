@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads", "avatars");
+// Resolve uploads dir at request time, not module load time
+function getUploadsDir() {
+  return path.join(process.cwd(), "uploads", "avatars");
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,8 +21,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File must be an image" }, { status: 400 });
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      return NextResponse.json({ error: "File must be under 2MB" }, { status: 400 });
+    if (file.size > 25 * 1024 * 1024) {
+      return NextResponse.json({ error: "File must be under 25MB" }, { status: 400 });
     }
 
     const safeId = agentId.replace(/[^a-z0-9-]/gi, "");
@@ -27,11 +30,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });
     }
 
-    await mkdir(UPLOADS_DIR, { recursive: true });
+    const uploadsDir = getUploadsDir();
+    await mkdir(uploadsDir, { recursive: true });
 
     const ext = file.type === "image/svg+xml" ? "svg" : "png";
     const filename = `${safeId}-avatar.${ext}`;
-    const filePath = path.join(UPLOADS_DIR, filename);
+    const filePath = path.join(uploadsDir, filename);
 
     const bytes = await file.arrayBuffer();
     await writeFile(filePath, Buffer.from(bytes));
@@ -56,9 +60,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
+    const uploadsDir = getUploadsDir();
+
     // Try png first, then svg
     for (const ext of ["png", "svg"]) {
-      const filePath = path.join(UPLOADS_DIR, `${safeId}-avatar.${ext}`);
+      const filePath = path.join(uploadsDir, `${safeId}-avatar.${ext}`);
       try {
         const data = await readFile(filePath);
         const contentType = ext === "svg" ? "image/svg+xml" : "image/png";
