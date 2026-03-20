@@ -458,7 +458,7 @@ export default function ChatPage() {
       </div>
 
       {/* Desktop: Main chat area (narrow) */}
-      <div className="hidden md:flex w-[320px] min-w-[280px] flex-col min-h-0 bg-[var(--bg-primary)]">
+      <div className="hidden md:flex w-[384px] min-w-[320px] flex-col min-h-0 bg-[var(--bg-primary)]">
         {/* Top bar */}
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
