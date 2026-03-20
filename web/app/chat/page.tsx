@@ -457,8 +457,8 @@ export default function ChatPage() {
         />
       </div>
 
-      {/* Desktop: Main chat area */}
-      <div className="hidden md:flex flex-1 flex-col min-w-0 bg-[var(--bg-primary)]">
+      {/* Desktop: Main chat area (narrow) */}
+      <div className="hidden md:flex w-[320px] min-w-[280px] flex-col min-h-0 bg-[var(--bg-primary)]">
         {/* Top bar */}
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -535,8 +535,8 @@ export default function ChatPage() {
         />
       </div>
 
-      {/* Desktop: Info panel */}
-      <div className="hidden md:flex">
+      {/* Desktop: Dashboard panel */}
+      <div className="hidden md:flex flex-1 min-w-0">
         <AgentInfoPanel agent={agent} />
       </div>
 
