@@ -48,7 +48,7 @@ export default function AgentSidebar({
                   >
                     <div className="relative shrink-0">
                       <div
-                        className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-full flex items-center justify-center overflow-hidden"
+                        className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center overflow-hidden"
                         style={{ background: agent.color }}
                       >
                         {agent.avatar ? (
