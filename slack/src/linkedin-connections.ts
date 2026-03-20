@@ -18,7 +18,7 @@ const UNIPILE_DSN = process.env.UNIPILE_DSN || "";
 const UNIPILE_ACCOUNT_ID = process.env.UNIPILE_ACCOUNT_ID || "";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
-const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
+const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "crm.sh");
 const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 
 const PROCESSED_FILE = process.env.LINKEDIN_CONNECTIONS_PROCESSED || "/root/.nanobot/linkedin_connections_processed.json";
@@ -140,11 +140,9 @@ function findOrCreateCrmContact(
       [CRM_TOOL, "create-contact", JSON.stringify(payload)],
       { timeout: 15000, encoding: "utf-8" }
     );
-    const idMatch = result.match(/ID:\s+([a-f0-9-]{36})/);
-    if (idMatch) return idMatch[1];
     try {
       const data = JSON.parse(result);
-      return data?.data?.createPerson?.id || null;
+      return data?.id || null;
     } catch {
       return null;
     }
@@ -197,7 +195,7 @@ export function getPersonStage(contactId: string): string | null {
       encoding: "utf-8",
     });
     const data = JSON.parse(result);
-    return data?.data?.person?.stage || null;
+    return data?.stage || null;
   } catch {
     return null;
   }
@@ -264,7 +262,7 @@ function linkCompany(contactId: string, companyName: string): void {
       timeout: 15000,
       encoding: "utf-8",
     });
-    const companies = JSON.parse(searchResult)?.data?.companies || [];
+    const companies = JSON.parse(searchResult) || [];
 
     let companyId: string | null = null;
 
@@ -287,16 +285,11 @@ function linkCompany(contactId: string, companyName: string): void {
         [CRM_TOOL, "create-company", JSON.stringify({ name: companyName })],
         { timeout: 15000, encoding: "utf-8" }
       );
-      const idMatch = createResult.match(/ID:\s+([a-f0-9-]{36})/);
-      if (idMatch) {
-        companyId = idMatch[1];
-      } else {
-        try {
-          const data = JSON.parse(createResult);
-          companyId = data?.data?.createCompany?.id || null;
-        } catch {
-          // ignore
-        }
+      try {
+        const data = JSON.parse(createResult);
+        companyId = data?.id || null;
+      } catch {
+        // ignore
       }
     }
 

@@ -303,7 +303,7 @@ export async function executeTool(
 
     if (name === "twenty_crm") {
       const cmdArgs = [args.command, args.arg1, args.arg2, args.arg3, args.arg4].filter(Boolean);
-      return execFileSync(join(TOOL_SCRIPTS_PATH, "twenty_crm.sh"), cmdArgs, {
+      return execFileSync(join(TOOL_SCRIPTS_PATH, "crm.sh"), cmdArgs, {
         timeout: TOOL_TIMEOUT,
         env: getToolEnv(),
         encoding: "utf-8",

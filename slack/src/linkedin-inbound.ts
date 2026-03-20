@@ -16,7 +16,7 @@ import { buildLinkedInMessageBlocks } from "./linkedin-blocks.js";
 import { fetchLinkedInProfile, enrichContactFromLinkedIn, updatePersonStage, getPersonStage } from "./linkedin-connections.js";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
-const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
+const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "crm.sh");
 const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 
 // Unipile config
@@ -268,16 +268,9 @@ function createContact(firstName: string, lastName: string, linkedinUrl?: string
       [CRM_TOOL, "create-contact", JSON.stringify(payload)],
       { timeout: 15000, encoding: "utf-8" }
     );
-    // Shell script outputs human-readable text like "Contact created successfully!\n  ID: uuid\n  Name: ..."
-    // Extract the ID from the output
-    const idMatch = result.match(/ID:\s+([a-f0-9-]{36})/);
-    if (idMatch) {
-      return idMatch[1];
-    }
-    // Fallback: try JSON parse in case format changes
     try {
       const data = JSON.parse(result);
-      return data?.data?.createPerson?.id || null;
+      return data?.id || null;
     } catch {
       console.warn("[linkedin] Could not parse create-contact output:", result.slice(0, 200));
       return null;

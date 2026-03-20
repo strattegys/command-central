@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { crmFetch } from "@/lib/crm";
+import { query, transaction } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   const personId = request.nextUrl.searchParams.get("personId");
@@ -8,22 +8,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Twenty CRM notes use noteTargets to link to people
-    // Try REST filter first, fall back to fetching all and filtering
-    const path =
-      `/rest/notes?limit=50&orderBy=createdAt=DescNullsLast` +
-      `&filter[noteTargets][some][personId][eq]=${personId}`;
-    const data = await crmFetch(path);
-    const raw = data.data?.notes ?? data.notes ?? data.data ?? [];
-    const notes = raw.map((n: Record<string, unknown>) => ({
-      id: n.id,
-      title: n.title ?? "",
-      body: n.body ?? "",
-      createdAt: n.createdAt ?? "",
-    }));
+    const notes = await query(
+      `SELECT n.id, n.title, n."bodyV2Markdown" AS body, n."createdAt"
+       FROM note n
+       JOIN "noteTarget" nt ON nt."noteId" = n.id AND nt."deletedAt" IS NULL
+       WHERE nt."targetPersonId" = $1
+         AND n."deletedAt" IS NULL
+       ORDER BY n."createdAt" DESC
+       LIMIT 50`,
+      [personId]
+    );
     return NextResponse.json({ notes });
   } catch {
-    // If the relation filter fails, return empty — we'll iterate on the filter
     return NextResponse.json({ notes: [] });
   }
 }
@@ -35,34 +31,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "personId and body are required" }, { status: 400 });
     }
 
-    const noteData = {
-      title: title || "Web Note from Govind",
-      body,
-    };
+    const noteId = await transaction(async (run) => {
+      const noteRes = await run(
+        `INSERT INTO note (id, title, "bodyV2Markdown", "createdAt", "updatedAt")
+         VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())
+         RETURNING id`,
+        [title || "Web Note from Govind", body]
+      );
+      const id = noteRes.rows[0].id;
 
-    // Create the note
-    const noteResult = await crmFetch("/rest/notes", {
-      method: "POST",
-      body: JSON.stringify(noteData),
+      await run(
+        `INSERT INTO "noteTarget" (id, "noteId", "targetPersonId", "createdAt", "updatedAt")
+         VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())`,
+        [id, personId]
+      );
+
+      return id;
     });
-
-    const noteId = noteResult.data?.createNote?.id ?? noteResult.data?.id ?? noteResult.id;
-
-    // Link note to person via noteTargets
-    if (noteId) {
-      try {
-        await crmFetch("/rest/noteTargets", {
-          method: "POST",
-          body: JSON.stringify({
-            noteId,
-            personId,
-          }),
-        });
-      } catch {
-        // Non-fatal — note was created, just not linked
-        console.warn("Failed to link note to person");
-      }
-    }
 
     return NextResponse.json({ success: true, noteId });
   } catch (error: unknown) {

@@ -24,7 +24,7 @@ interface ScheduledReply {
   scheduledBy: string; // Slack user ID
 }
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
-const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
+const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "crm.sh");
 const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 
 /**

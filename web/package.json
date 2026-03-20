@@ -12,6 +12,7 @@
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "node-cron": "^4.2.1",
+    "pg": "^8.20.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0"
@@ -20,6 +21,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
