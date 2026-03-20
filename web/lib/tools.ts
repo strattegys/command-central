@@ -8,20 +8,6 @@ const TOOL_SCRIPTS_PATH =
 const TOOL_TIMEOUT = 15000;
 const LINKEDIN_TIMEOUT = 60000;
 
-// Optional callback for delegation visibility (set by Slack gateway)
-export type DelegationCallback = (from: string, to: string, task: string, result: string) => void;
-let delegationCallback: DelegationCallback | undefined;
-export function setDelegationCallback(cb: DelegationCallback) {
-  delegationCallback = cb;
-}
-
-// Optional callback for Slack operations (set by Slack gateway)
-export type SlackExecutor = (agentId: string, command: string, args: Record<string, string>) => Promise<string>;
-let slackExecutor: SlackExecutor | undefined;
-export function setSlackExecutor(executor: SlackExecutor) {
-  slackExecutor = executor;
-}
-
 export const toolDeclarations = [
   {
     name: "twenty_crm",
@@ -142,59 +128,6 @@ export const toolDeclarations = [
           type: "string",
           description:
             "For save_fact: the fact to remember. For replace: the full new memory content.",
-        },
-      },
-      required: ["command"],
-    },
-  },
-  {
-    name: "slack",
-    description:
-      "Interact with Slack workspace. You can post messages to channels, read channel history, reply in threads, react to messages, list channels, DM users, and schedule messages. You are IN Slack — when a user talks to you in a channel or DM, your response is already posted there. Use this tool when you need to proactively reach out to a DIFFERENT channel, start a new thread, read what's happening elsewhere, or schedule a future message.",
-    parameters: {
-      type: "object" as const,
-      properties: {
-        command: {
-          type: "string",
-          description:
-            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies), 'set-reminder' (schedule a message — pass channel or user_id, time as ISO 8601, and text), 'list-reminders' (list scheduled messages — optional channel or user_id), 'cancel-reminder' (cancel a scheduled message — requires channel or user_id and message_id)",
-        },
-        channel: {
-          type: "string",
-          description:
-            "Channel name (without #) or channel ID. For named channels use: alerts, ops, research, general, etc. For DMs, use the user's Slack ID.",
-        },
-        text: {
-          type: "string",
-          description: "Message text (for post-message, reply-thread, dm-user)",
-        },
-        thread_ts: {
-          type: "string",
-          description: "Thread timestamp (for reply-thread, read-thread, react)",
-        },
-        emoji: {
-          type: "string",
-          description: "Emoji name without colons, e.g. 'thumbsup' (for react)",
-        },
-        message_ts: {
-          type: "string",
-          description: "Message timestamp to react to (for react)",
-        },
-        limit: {
-          type: "string",
-          description: "Number of messages to read (for read-channel, read-thread). Default: 10",
-        },
-        user_id: {
-          type: "string",
-          description: "Slack user ID (for dm-user)",
-        },
-        time: {
-          type: "string",
-          description: "When to post the scheduled message (for set-reminder). Use ISO 8601 format with timezone, e.g. '2026-03-19T10:00:00-07:00' for 10am Pacific. ALWAYS include the timezone offset.",
-        },
-        message_id: {
-          type: "string",
-          description: "Scheduled message ID to cancel (for cancel-reminder)",
         },
       },
       required: ["command"],
@@ -373,13 +306,6 @@ export async function executeTool(
       return result;
     }
 
-    if (name === "slack") {
-      if (!slackExecutor) {
-        return "Slack is not available in this context. Slack tools only work when running through the Slack gateway.";
-      }
-      return await slackExecutor(agentId, args.command, args);
-    }
-
     if (name === "agent_manager") {
       const cmdArgs = [args.command, args.arg1, args.arg2].filter(Boolean);
       return execFileSync(join(TOOL_SCRIPTS_PATH, "agent_manager.sh"), cmdArgs, {
@@ -403,8 +329,6 @@ export async function executeTool(
         // Dynamic import to avoid circular dependency with gemini.ts
         const { autonomousChat } = await import("./gemini");
         const result = await autonomousChat(targetAgent, taskDesc, { fromAgent: agentId });
-        // Notify Slack (or other transport) about the delegation
-        delegationCallback?.(agentId, targetAgent, taskDesc, result || "(no response)");
         return result || "The agent completed the task but returned no response.";
       } else {
         // Async: queue the task for the target agent's heartbeat to pick up

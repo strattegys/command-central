@@ -1,9 +1,10 @@
-import { readFileSync, existsSync, appendFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
 import { readMemory } from "./memory";
 import { getAgentConfig } from "./agent-config";
 import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from "./tasks";
+import { writeNotification } from "./notifications";
 
 /**
  * Heartbeat System — Autonomous Agent Task Checking
@@ -20,6 +21,7 @@ import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from 
  */
 
 const NOTIFICATIONS_FILE = "/root/.nanobot/web_notifications.jsonl";
+
 const TOOL_SCRIPTS_PATH =
   process.env.TOOL_SCRIPTS_PATH || join(process.cwd(), "..", ".nanobot", "tools");
 
@@ -42,21 +44,6 @@ function shouldNotify(category: string): boolean {
 
 function markNotified(category: string): void {
   lastNotifiedAt.set(category, Date.now());
-}
-
-function writeNotification(title: string, message: string): void {
-  try {
-    const entry = JSON.stringify({
-      type: "heartbeat",
-      title,
-      message,
-      timestamp: new Date().toISOString(),
-      read: false,
-    });
-    appendFileSync(NOTIFICATIONS_FILE, entry + "\n");
-  } catch (error) {
-    console.error("[heartbeat] Failed to write notification:", error);
-  }
 }
 
 /**
@@ -521,10 +508,80 @@ export async function runTimHeartbeat(
 
 /**
  * Simple heartbeat for non-Tim agents.
- * Just logs OK and could be extended later.
+ * Checks memory-based reminders and delivers via notification + autonomous chat.
  */
 export async function runSimpleHeartbeat(agentId: string): Promise<void> {
-  console.log(`[heartbeat] ${agentId} heartbeat OK`);
+  const reminders = checkAgentReminders(agentId);
+
+  if (reminders.length === 0) {
+    console.log(`[heartbeat] ${agentId} heartbeat OK`);
+    return;
+  }
+
+  console.log(`[heartbeat] ${agentId} found ${reminders.length} due reminder(s)`);
+
+  // Deliver reminders via autonomous chat
+  try {
+    const { autonomousChat } = await import("./gemini");
+    const reminderList = reminders
+      .map((r) => `- ${r}`)
+      .join("\n");
+
+    const prompt = [
+      `[REMINDER DELIVERY]`,
+      ``,
+      `The following reminders are now due:`,
+      ``,
+      reminderList,
+      ``,
+      `Deliver these reminders to Govind in a friendly way. Then mark them as delivered by updating your memory — remove the delivered reminder lines.`,
+    ].join("\n");
+
+    await autonomousChat(agentId, prompt);
+
+    writeNotification(
+      `${agentId} Reminders`,
+      reminders.join("; ")
+    );
+  } catch (err) {
+    console.error(`[heartbeat] ${agentId} reminder delivery failed:`, err);
+  }
+}
+
+/**
+ * Check an agent's memory for due reminders.
+ * Supports formats like:
+ *   reminder::2026-03-21T14:00::Call the bank
+ *   reminder::active::2026-03-21T14:00:00-07:00::Call the bank
+ */
+function checkAgentReminders(agentId: string): string[] {
+  const memory = readMemory(agentId);
+  if (!memory) return [];
+
+  const now = new Date();
+  const dueReminders: string[] = [];
+
+  for (const line of memory.split("\n")) {
+    const trimmed = line.trim().replace(/^-\s*/, "");
+
+    // Match reminder::timestamp::message or reminder::active::timestamp::message
+    const match = trimmed.match(
+      /^reminder::(?:active::)?(\d{4}-\d{2}-\d{2}T[\d:.,+-]+)::(.+)/i
+    );
+    if (!match) continue;
+
+    const reminderTime = new Date(match[1]);
+    const reminderMessage = match[2].trim();
+
+    if (isNaN(reminderTime.getTime())) continue;
+
+    // Due if reminder time is in the past (or within the next 30 min window)
+    if (reminderTime <= now) {
+      dueReminders.push(reminderMessage);
+    }
+  }
+
+  return dueReminders;
 }
 
 /**

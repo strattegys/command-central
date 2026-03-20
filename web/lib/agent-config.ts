@@ -21,7 +21,7 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
     memoryDir: "/root/.nanobot/memory",
-    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task", "slack"],
+    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task"],
     routines: [
       {
         name: "LinkedIn Message Sync",
@@ -40,6 +40,11 @@ const AGENTS: Record<string, AgentBackendConfig> = {
         schedule: "0 2 * * *",
         description: "Nightly backup of Twenty CRM database",
         logFile: "/var/log/twenty-backup.log",
+      },
+      {
+        name: "LinkedIn Connections Check",
+        schedule: "*/10 * * * *",
+        description: "Polls for new LinkedIn connections, enriches CRM contacts",
       },
     ],
   },
@@ -73,7 +78,7 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     sessionFile: "/root/.fridaybot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.fridaybot/system-prompt.md",
     memoryDir: "/root/.fridaybot/memory",
-    tools: ["agent_manager", "web_search", "memory", "slack", "delegate_task"],
+    tools: ["agent_manager", "web_search", "memory", "delegate_task"],
     routines: [],
   },
 };

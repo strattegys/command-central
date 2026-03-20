@@ -232,6 +232,25 @@ export function initCronJobs(): void {
     }
   );
 
+  // Tim: LinkedIn New Connections Poller
+  registerJob(
+    {
+      id: "linkedin-connections",
+      name: "LinkedIn Connections Check",
+      schedule: "*/10 * * * *",
+      description: "Polls for new LinkedIn connections, enriches CRM contacts",
+      agentId: "tim",
+      enabled: true,
+    },
+    async () => {
+      const { checkNewConnections } = await import("./linkedin-crm");
+      const count = await checkNewConnections();
+      if (count > 0) {
+        console.log(`[cron] Processed ${count} new LinkedIn connection(s)`);
+      }
+    }
+  );
+
   console.log(`[cron] Registered ${jobRegistry.size} jobs`);
 }
 
