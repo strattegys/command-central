@@ -59,7 +59,7 @@ export default function KanbanColumn({
       {/* Cards — equal height */}
       <div className="flex flex-col flex-1 min-h-0 px-1 gap-2">
         {visible.map((person) => (
-          <div key={person.id} className="flex-1 flex min-h-0">
+          <div key={person.id} className="flex-1 flex min-h-0 max-h-[calc(100%/6)]">
             <KanbanCard
               person={person}
               alert={alerts[person.id]}
