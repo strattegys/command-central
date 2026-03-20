@@ -101,9 +101,9 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
-          rows={1}
-          className="flex-1 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm rounded-2xl px-4 py-2.5 resize-none outline-none placeholder-[var(--text-secondary)] disabled:opacity-50 max-h-[120px] overflow-y-auto"
-          style={{ minHeight: "40px" }}
+          rows={3}
+          className="flex-1 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm rounded-xl px-4 py-2.5 resize-none outline-none placeholder-[var(--text-secondary)] disabled:opacity-50 max-h-[300px] overflow-y-auto"
+          style={{ minHeight: "80px" }}
         />
         <PushToTalk onTranscript={handleTranscript} disabled={disabled} />
         {isLoading ? (
