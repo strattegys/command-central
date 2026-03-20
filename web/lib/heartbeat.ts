@@ -506,6 +506,9 @@ export async function runTimHeartbeat(
   return allFindings;
 }
 
+// Track which reminders have been delivered to avoid re-firing every minute
+const deliveredReminders = new Set<string>();
+
 /**
  * Simple heartbeat for non-Tim agents.
  * Checks memory-based reminders and delivers via notification + autonomous chat.
@@ -513,17 +516,30 @@ export async function runTimHeartbeat(
 export async function runSimpleHeartbeat(agentId: string): Promise<void> {
   const reminders = checkAgentReminders(agentId);
 
-  if (reminders.length === 0) {
-    console.log(`[heartbeat] ${agentId} heartbeat OK`);
+  // Filter out already-delivered reminders (dedup for minute-level polling)
+  const newReminders = reminders.filter(
+    (r) => !deliveredReminders.has(`${agentId}:${r}`)
+  );
+
+  if (newReminders.length === 0) {
+    // Only log OK when there are truly zero due reminders (not just deduped ones)
+    if (reminders.length === 0) {
+      console.log(`[heartbeat] ${agentId} heartbeat OK`);
+    }
     return;
   }
 
-  console.log(`[heartbeat] ${agentId} found ${reminders.length} due reminder(s)`);
+  console.log(`[heartbeat] ${agentId} found ${newReminders.length} due reminder(s)`);
+
+  // Mark as delivered before executing (prevents re-fire on next tick)
+  for (const r of newReminders) {
+    deliveredReminders.add(`${agentId}:${r}`);
+  }
 
   // Deliver reminders via autonomous chat
   try {
     const { autonomousChat } = await import("./gemini");
-    const reminderList = reminders
+    const reminderList = newReminders
       .map((r) => `- ${r}`)
       .join("\n");
 
@@ -534,17 +550,26 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
       ``,
       reminderList,
       ``,
-      `Deliver these reminders to Govind in a friendly way. Then mark them as delivered by updating your memory — remove the delivered reminder lines.`,
+      `Deliver these reminders to Govind in a friendly way. Then mark them as delivered by updating your memory — remove the delivered reminder lines using the memory replace command.`,
     ].join("\n");
 
     await autonomousChat(agentId, prompt);
 
     writeNotification(
       `${agentId} Reminders`,
-      reminders.join("; ")
+      newReminders.join("; ")
     );
   } catch (err) {
     console.error(`[heartbeat] ${agentId} reminder delivery failed:`, err);
+    // Remove from delivered set so it retries next tick
+    for (const r of newReminders) {
+      deliveredReminders.delete(`${agentId}:${r}`);
+    }
+  }
+
+  // Clean up old entries periodically (delivered set could grow unbounded)
+  if (deliveredReminders.size > 200) {
+    deliveredReminders.clear();
   }
 }
 

@@ -56,7 +56,13 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     systemPromptFile: "/root/.suzibot/system-prompt.md",
     memoryDir: "/root/.suzibot/memory",
     tools: ["web_search", "memory"],
-    routines: [],
+    routines: [
+      {
+        name: "Heartbeat",
+        schedule: "* * * * *",
+        description: "Checks reminders and important tasks every minute",
+      },
+    ],
   },
   rainbow: {
     id: "rainbow",

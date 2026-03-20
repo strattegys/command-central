@@ -184,13 +184,13 @@ export function initCronJobs(): void {
     }
   );
 
-  // Heartbeat: Suzi
+  // Heartbeat: Suzi — checks reminders every minute
   registerJob(
     {
       id: "heartbeat-suzi",
       name: "Heartbeat",
-      schedule: "*/30 * * * *",
-      description: "Periodic health check",
+      schedule: "* * * * *",
+      description: "Checks reminders and important tasks every minute",
       agentId: "suzi",
       enabled: true,
     },
