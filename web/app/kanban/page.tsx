@@ -5,26 +5,34 @@ import Link from "next/link";
 import KanbanBoard from "@/components/kanban/KanbanBoard";
 import CampaignSelector from "@/components/kanban/CampaignSelector";
 import ContactDetailPanel from "@/components/kanban/ContactDetailPanel";
-import type { Person } from "@/components/kanban/KanbanCard";
+import type { Person, PersonAlert } from "@/components/kanban/KanbanCard";
 
 export default function KanbanPage() {
   const [campaignId, setCampaignId] = useState("");
   const [people, setPeople] = useState<Person[]>([]);
+  const [alerts, setAlerts] = useState<Record<string, PersonAlert>>({});
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchPeople = useCallback(async (id: string) => {
     if (!id) {
       setPeople([]);
+      setAlerts({});
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/crm/people?campaignId=${id}`);
-      const data = await res.json();
-      setPeople(data.people || []);
+      const [peopleRes, alertsRes] = await Promise.all([
+        fetch(`/api/crm/people?campaignId=${id}`),
+        fetch(`/api/crm/alerts?campaignId=${id}`),
+      ]);
+      const peopleData = await peopleRes.json();
+      const alertsData = await alertsRes.json();
+      setPeople(peopleData.people || []);
+      setAlerts(alertsData.alerts || {});
     } catch {
       setPeople([]);
+      setAlerts({});
     } finally {
       setLoading(false);
     }
@@ -75,6 +83,7 @@ export default function KanbanPage() {
       ) : (
         <KanbanBoard
           people={people}
+          alerts={alerts}
           selectedPersonId={selectedPerson?.id ?? null}
           onSelectPerson={setSelectedPerson}
         />

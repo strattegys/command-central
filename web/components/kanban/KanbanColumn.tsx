@@ -1,4 +1,4 @@
-import KanbanCard, { type Person } from "./KanbanCard";
+import KanbanCard, { type Person, type PersonAlert } from "./KanbanCard";
 
 export interface StageConfig {
   key: string;
@@ -9,6 +9,7 @@ export interface StageConfig {
 interface KanbanColumnProps {
   stage: StageConfig;
   people: Person[];
+  alerts: Record<string, PersonAlert>;
   selectedPersonId: string | null;
   onSelectPerson: (person: Person) => void;
 }
@@ -16,9 +17,12 @@ interface KanbanColumnProps {
 export default function KanbanColumn({
   stage,
   people,
+  alerts,
   selectedPersonId,
   onSelectPerson,
 }: KanbanColumnProps) {
+  const alertCount = people.filter((p) => alerts[p.id]).length;
+
   return (
     <div className="flex flex-col min-w-[250px] w-[250px] shrink-0">
       {/* Column header */}
@@ -27,6 +31,11 @@ export default function KanbanColumn({
         <span className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
           {stage.label}
         </span>
+        {alertCount > 0 && (
+          <span className="text-[10px] bg-orange-400/20 text-orange-400 px-1.5 py-0.5 rounded-full font-medium">
+            {alertCount}
+          </span>
+        )}
         <span className="text-xs text-[var(--text-tertiary)] ml-auto">{people.length}</span>
       </div>
 
@@ -36,6 +45,7 @@ export default function KanbanColumn({
           <KanbanCard
             key={person.id}
             person={person}
+            alert={alerts[person.id]}
             isSelected={person.id === selectedPersonId}
             onClick={() => onSelectPerson(person)}
           />
