@@ -22,9 +22,13 @@ export default function NotificationBell() {
   });
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Only show global alerts — not per-agent chat/reminder notifications
+  const ALERT_TYPES = ["linkedin_inbound", "campaign", "schedule"];
+  const alerts = notifications.filter((n) => ALERT_TYPES.includes(n.type));
+
   const unreadCount = lastSeenEpoch
-    ? notifications.filter((n) => Date.parse(n.timestamp) > lastSeenEpoch).length
-    : notifications.length;
+    ? alerts.filter((n) => Date.parse(n.timestamp) > lastSeenEpoch).length
+    : alerts.length;
 
   const fetchNotifications = useCallback(() => {
     fetch("/api/notifications")
@@ -57,8 +61,8 @@ export default function NotificationBell() {
 
   const handleOpen = () => {
     setIsOpen(!isOpen);
-    if (!isOpen && notifications.length > 0) {
-      const latestEpoch = Date.parse(notifications[0].timestamp); // notifications are reverse-sorted
+    if (!isOpen && alerts.length > 0) {
+      const latestEpoch = Date.parse(alerts[0].timestamp);
       setLastSeenEpoch(latestEpoch);
       localStorage.setItem("notif_last_seen_epoch", String(latestEpoch));
     }
@@ -81,7 +85,7 @@ export default function NotificationBell() {
       <button
         onClick={handleOpen}
         className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] relative"
-        title="Notifications"
+        title="Alerts"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -97,14 +101,14 @@ export default function NotificationBell() {
       {isOpen && (
         <div className="absolute right-0 top-full mt-1 w-80 max-h-96 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50">
           <div className="px-3 py-2 border-b border-[var(--border-color)] text-xs font-medium text-[var(--text-secondary)]">
-            Notifications
+            Alerts
           </div>
-          {notifications.length === 0 ? (
+          {alerts.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-[var(--text-tertiary)]">
-              No notifications yet
+              No alerts
             </div>
           ) : (
-            notifications.map((n, i) => (
+            alerts.map((n, i) => (
               <div
                 key={`${n.timestamp}-${i}`}
                 className="px-3 py-2 border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-primary)] transition-colors"
