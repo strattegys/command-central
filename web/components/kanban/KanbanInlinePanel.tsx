@@ -64,7 +64,7 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
   }, []);
 
   return (
-    <div className="flex-1 border-l border-[var(--border-color)] bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+    <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       {/* Header */}
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
         <button

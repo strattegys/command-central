@@ -151,18 +151,18 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
 
   return (
     <>
-      <div className="flex-1 border-l border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col overflow-y-auto">
-        {/* Header */}
-        <div className="shrink-0 border-b border-[var(--border-color)] px-5 py-3 flex items-center gap-3">
+      <div className="flex-1 bg-[var(--bg-secondary)] flex flex-col overflow-y-auto">
+        {/* Avatar upload (compact) */}
+        <div className="shrink-0 px-5 pt-4 pb-3 flex items-center gap-3">
           <div
-            className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
+            className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
             style={{ background: agent.color }}
             onClick={() => fileInputRef.current?.click()}
           >
             {agent.avatar ? (
               <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-2xl font-medium text-white">{agent.name[0]}</span>
+              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
             )}
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
               {uploading ? (
@@ -184,14 +184,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
               onChange={handleAvatarUpload}
             />
           </div>
-          <div className="min-w-0">
-            <div className="font-semibold text-lg">{agent.name}</div>
-            <div className="text-sm text-[var(--text-secondary)]">{agent.role}</div>
-          </div>
-          <div className="flex items-center gap-1.5 ml-3">
-            <span className="w-2 h-2 rounded-full" style={{ background: agent.online ? "#1D9E75" : "#555" }} />
-            <span className="text-xs text-[var(--text-secondary)]">{agent.online ? "Online" : "Offline"}</span>
-          </div>
+          <div className="text-xs text-[var(--text-secondary)]">Click to change avatar</div>
         </div>
 
         {/* Dashboard content */}

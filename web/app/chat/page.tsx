@@ -585,54 +585,20 @@ export default function ChatPage() {
                 </svg>
               </button>
             )}
+            {/* Mobile only: kanban link */}
             {agentHasKanban(activeAgent) && (
-              <>
-                {/* Desktop: toggle inline Kanban */}
-                <button
-                  onClick={() => setRightPanel("kanban")}
-                  className={`hidden md:block p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                    rightPanel === "kanban"
-                      ? "text-[var(--accent-green)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  }`}
-                  title="Pipeline board"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="5" height="18" rx="1" />
-                    <rect x="10" y="3" width="5" height="12" rx="1" />
-                    <rect x="17" y="3" width="5" height="8" rx="1" />
-                  </svg>
-                </button>
-                {/* Mobile: navigate to full page */}
-                <Link
-                  href="/kanban"
-                  className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
-                  title="Pipeline board"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="5" height="18" rx="1" />
-                    <rect x="10" y="3" width="5" height="12" rx="1" />
-                    <rect x="17" y="3" width="5" height="8" rx="1" />
-                  </svg>
-                </Link>
-              </>
+              <Link
+                href="/kanban"
+                className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+                title="Pipeline board"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="5" height="18" rx="1" />
+                  <rect x="10" y="3" width="5" height="12" rx="1" />
+                  <rect x="17" y="3" width="5" height="8" rx="1" />
+                </svg>
+              </Link>
             )}
-            {/* Info panel toggle */}
-            <button
-              onClick={() => setRightPanel("info")}
-              className={`hidden md:block p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                rightPanel === "info"
-                  ? "text-[var(--accent-green)]"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }`}
-              title="Agent info"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -656,13 +622,73 @@ export default function ChatPage() {
         />
       </div>
 
-      {/* Desktop: Dashboard panel or Kanban */}
-      <div className="hidden md:flex flex-1 min-w-0">
-        {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
-          <KanbanInlinePanel onClose={() => setRightPanel("info")} />
-        ) : (
-          <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
-        )}
+      {/* Desktop: Right panel with persistent agent header */}
+      <div className="hidden md:flex flex-1 min-w-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        {/* Persistent agent header + nav icons */}
+        <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-2.5 flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0"
+            style={{ background: agent.color }}
+          >
+            {agent.avatar ? (
+              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>
+              {agent.name}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: agent.online ? "#1D9E75" : "#555" }} />
+              <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
+            </div>
+          </div>
+          {/* Panel nav icons */}
+          <div className="flex items-center gap-1">
+            {agentHasKanban(activeAgent) && (
+              <button
+                onClick={() => setRightPanel("kanban")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "kanban"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Pipeline board"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="5" height="18" rx="1" />
+                  <rect x="10" y="3" width="5" height="12" rx="1" />
+                  <rect x="17" y="3" width="5" height="8" rx="1" />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => setRightPanel("info")}
+              className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                rightPanel === "info"
+                  ? "text-[var(--accent-green)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              title="Agent info"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        {/* Panel content */}
+        <div className="flex-1 min-h-0 flex">
+          {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
+            <KanbanInlinePanel onClose={() => setRightPanel("info")} />
+          ) : (
+            <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
+          )}
+        </div>
       </div>
 
     </div>
