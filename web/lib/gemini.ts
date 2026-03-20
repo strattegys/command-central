@@ -324,7 +324,38 @@ export async function chatStream(
     const parts = candidate.content.parts;
     const functionCalls = parts.filter((p) => p.functionCall);
 
-    if (functionCalls.length === 0) break; // No more tool calls — stream the final response
+    if (functionCalls.length === 0) {
+      // Check if this response already contains text (common after tool results)
+      const inlineText = parts.filter((p) => p.text).map((p) => p.text).join("");
+      if (inlineText) {
+        // Model already produced a text response — use it directly instead of re-calling
+        addMessage(config.sessionFile, {
+          role: "user",
+          text: userMessage,
+          timestamp: Date.now(),
+        });
+        const modelMsg: ChatMessage = {
+          role: "model",
+          text: inlineText,
+          timestamp: Date.now(),
+        };
+        if (delegatedAgents.size > 0) {
+          modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+        }
+        addMessage(config.sessionFile, modelMsg);
+        consolidateSession(agentId, config.sessionFile).catch(() => {});
+
+        // Send the text as a single chunk
+        onChunk(inlineText);
+        return {
+          text: inlineText,
+          delegatedFrom: delegatedAgents.size > 0
+            ? Array.from(delegatedAgents).join(",")
+            : undefined,
+        };
+      }
+      break; // No text — fall through to streaming call
+    }
 
     contents.push({ role: "model", parts });
 
