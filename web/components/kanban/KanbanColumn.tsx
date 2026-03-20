@@ -56,16 +56,17 @@ export default function KanbanColumn({
         <span className="text-xs text-[var(--text-tertiary)] ml-auto">{people.length}</span>
       </div>
 
-      {/* Cards — evenly spaced */}
-      <div className="flex flex-col justify-between flex-1 min-h-0 px-1 gap-2">
+      {/* Cards — equal height */}
+      <div className="flex flex-col flex-1 min-h-0 px-1 gap-2">
         {visible.map((person) => (
-          <KanbanCard
-            key={person.id}
-            person={person}
-            alert={alerts[person.id]}
-            isSelected={person.id === selectedPersonId}
-            onClick={() => onSelectPerson(person)}
-          />
+          <div key={person.id} className="flex-1 flex min-h-0">
+            <KanbanCard
+              person={person}
+              alert={alerts[person.id]}
+              isSelected={person.id === selectedPersonId}
+              onClick={() => onSelectPerson(person)}
+            />
+          </div>
         ))}
         {people.length === 0 && (
           <div className="text-xs text-[var(--text-tertiary)] text-center py-4 italic flex-1 flex items-center justify-center">
