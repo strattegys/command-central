@@ -7,6 +7,8 @@ interface Campaign {
   name: string;
   stage: string;
   spec: string;
+  boardId: string | null;
+  board: { id: string; name: string; description?: string | null; stages?: unknown; transitions?: unknown } | null;
 }
 
 const STAGES = ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"] as const;
@@ -21,9 +23,12 @@ const STAGE_COLORS: Record<string, string> = {
 interface CampaignSelectorProps {
   selectedId: string;
   onSelect: (id: string) => void;
+  onCampaignLoaded?: (campaign: Campaign | null) => void;
 }
 
-export default function CampaignSelector({ selectedId, onSelect }: CampaignSelectorProps) {
+export type { Campaign };
+
+export default function CampaignSelector({ selectedId, onSelect, onCampaignLoaded }: CampaignSelectorProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPopup, setShowPopup] = useState(false);
@@ -51,6 +56,11 @@ export default function CampaignSelector({ selectedId, onSelect }: CampaignSelec
   }, [showPopup]);
 
   const selected = campaigns.find((c) => c.id === selectedId);
+
+  // Notify parent when the selected campaign (with board data) is resolved
+  useEffect(() => {
+    onCampaignLoaded?.(selected ?? null);
+  }, [selected, onCampaignLoaded]);
 
   const handleStageChange = async (newStage: string) => {
     if (!selected || saving) return;
@@ -149,6 +159,16 @@ export default function CampaignSelector({ selectedId, onSelect }: CampaignSelec
               ))}
             </div>
           </div>
+
+          {/* Board */}
+          {selected.board && (
+            <div className="px-4 py-3 border-b border-[var(--border-color)]">
+              <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-1 block">
+                Board
+              </label>
+              <span className="text-xs text-[var(--text-secondary)]">{selected.board.name}</span>
+            </div>
+          )}
 
           {/* Spec */}
           <div className="px-4 py-3 flex-1 overflow-y-auto min-h-0">

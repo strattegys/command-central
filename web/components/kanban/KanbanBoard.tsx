@@ -1,17 +1,10 @@
-import KanbanColumn, { type StageConfig } from "./KanbanColumn";
+import KanbanColumn from "./KanbanColumn";
 import type { Person, PersonAlert } from "./KanbanCard";
-
-export const STAGES: StageConfig[] = [
-  { key: "TARGET", label: "Target", color: "#6b8a9e" },
-  { key: "INITIATED", label: "Initiated", color: "#2b5278" },
-  { key: "ACCEPTED", label: "Accepted", color: "#534AB7" },
-  { key: "MESSAGED", label: "Messaged", color: "#7c5bbf" },
-  { key: "ENGAGED", label: "Engaged", color: "#1D9E75" },
-  { key: "PROSPECT", label: "Prospect", color: "#D85A30" },
-  { key: "CONVERTED", label: "Converted", color: "#22c55e" },
-];
+import { DEFAULT_STAGES, type StageConfig } from "@/lib/board-types";
 
 interface KanbanBoardProps {
+  stages?: StageConfig[];
+  transitions?: Record<string, string[]>;
   people: Person[];
   alerts: Record<string, PersonAlert>;
   selectedPersonId: string | null;
@@ -19,6 +12,8 @@ interface KanbanBoardProps {
 }
 
 export default function KanbanBoard({
+  stages = DEFAULT_STAGES,
+  transitions,
   people,
   alerts,
   selectedPersonId,
@@ -26,22 +21,23 @@ export default function KanbanBoard({
 }: KanbanBoardProps) {
   // Group people by stage
   const grouped = new Map<string, Person[]>();
-  for (const stage of STAGES) {
+  for (const stage of stages) {
     grouped.set(stage.key, []);
   }
   for (const person of people) {
-    const key = person.stage || "TARGET";
+    const key = person.stage || stages[0]?.key || "TARGET";
     const list = grouped.get(key);
     if (list) {
       list.push(person);
     } else {
-      grouped.get("TARGET")!.push(person);
+      // Unknown stage — put in first column
+      grouped.get(stages[0]?.key || "TARGET")?.push(person);
     }
   }
 
   return (
     <div className="flex gap-3 overflow-x-auto flex-1 min-h-0 p-3">
-      {STAGES.map((stage) => (
+      {stages.map((stage) => (
         <KanbanColumn
           key={stage.key}
           stage={stage}

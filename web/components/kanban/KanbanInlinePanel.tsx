@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import KanbanBoard from "./KanbanBoard";
-import CampaignSelector from "./CampaignSelector";
+import CampaignSelector, { type Campaign } from "./CampaignSelector";
 import ContactDetailPanel from "./ContactDetailPanel";
 import type { Person, PersonAlert } from "./KanbanCard";
+import type { StageConfig } from "@/lib/board-types";
 
 interface KanbanInlinePanelProps {
   onClose: () => void;
@@ -19,6 +20,8 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
   const [alerts, setAlerts] = useState<Record<string, PersonAlert>>({});
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
+  const [boardStages, setBoardStages] = useState<StageConfig[] | undefined>();
+  const [boardTransitions, setBoardTransitions] = useState<Record<string, string[]> | undefined>();
 
   const fetchPeople = useCallback(async (id: string) => {
     if (!id) {
@@ -50,6 +53,16 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
     if (campaignId) localStorage.setItem("kanban_campaign", campaignId);
   }, [campaignId, fetchPeople]);
 
+  const handleCampaignLoaded = useCallback((campaign: Campaign | null) => {
+    if (campaign?.board) {
+      setBoardStages(campaign.board.stages as StageConfig[] | undefined);
+      setBoardTransitions(campaign.board.transitions as Record<string, string[]> | undefined);
+    } else {
+      setBoardStages(undefined);
+      setBoardTransitions(undefined);
+    }
+  }, []);
+
   return (
     <div className="flex-1 border-l border-[var(--border-color)] bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       {/* Header */}
@@ -67,7 +80,11 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
 
         <span className="text-xs font-semibold text-[var(--text-primary)]">Pipeline</span>
 
-        <CampaignSelector selectedId={campaignId} onSelect={setCampaignId} />
+        <CampaignSelector
+          selectedId={campaignId}
+          onSelect={setCampaignId}
+          onCampaignLoaded={handleCampaignLoaded}
+        />
 
         {loading && (
           <span className="text-xs text-[var(--text-tertiary)]">Loading...</span>
@@ -89,6 +106,8 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
         </div>
       ) : (
         <KanbanBoard
+          stages={boardStages}
+          transitions={boardTransitions}
           people={people}
           alerts={alerts}
           selectedPersonId={selectedPerson?.id ?? null}

@@ -2,12 +2,9 @@
 
 import { useState } from "react";
 import KanbanCard, { type Person, type PersonAlert } from "./KanbanCard";
+import type { StageConfig } from "@/lib/board-types";
 
-export interface StageConfig {
-  key: string;
-  label: string;
-  color: string;
-}
+export type { StageConfig };
 
 const PAGE_SIZE = 6;
 
