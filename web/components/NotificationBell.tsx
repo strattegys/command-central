@@ -99,7 +99,7 @@ export default function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="fixed left-[210px] top-[40px] w-80 max-h-96 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50">
+        <div className="absolute left-full top-0 ml-2 w-80 max-h-96 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50">
           <div className="px-3 py-2 border-b border-[var(--border-color)] text-xs font-medium text-[var(--text-secondary)]">
             Alerts
           </div>
