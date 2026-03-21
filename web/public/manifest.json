@@ -2,20 +2,20 @@
   "name": "Strattegys Command Central",
   "short_name": "Command Central",
   "description": "Strattegys AI Agent Hub — Tim, Suzi, Rainbow",
-  "start_url": "/chat",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0f18",
   "theme_color": "#0e1621",
   "orientation": "any",
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

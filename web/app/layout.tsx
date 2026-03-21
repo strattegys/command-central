@@ -6,8 +6,8 @@ export const metadata: Metadata = {
   description: "AI Agent Hub — Tim, Suzi, Rainbow",
   manifest: "/manifest.json",
   icons: {
-    icon: "/strattegy-logo.png",
-    apple: "/icons/icon-192.png",
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,
