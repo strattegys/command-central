@@ -57,7 +57,10 @@ export default function MessageBubble({
       >
         <div
           className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden text-[var(--text-primary)]"
-          style={{ background: isUser ? "var(--bg-tertiary)" : agentBg }}
+          style={{
+            background: isUser ? "var(--bg-tertiary)" : agentBg,
+            ...(isUser ? { border: "1px solid rgba(74, 158, 202, 0.35)" } : {}),
+          }}
         >
           {replyTo && (
             <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 bg-black/15 border-white/30 text-white/70">
@@ -68,14 +71,14 @@ export default function MessageBubble({
             </div>
           )}
           {isUser && (
-            <div className="text-xs font-medium mb-1 text-[var(--text-secondary)]">
+            <div className="text-sm font-medium mb-1 text-[var(--text-secondary)]">
               {fromAgent
                 ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
                 : "You"}
             </div>
           )}
           {!isUser && (
-            <div className="text-xs font-medium mb-1" style={{ color: agentColor }}>
+            <div className="text-sm font-medium mb-1" style={{ color: agentColor }}>
               {agentName}
               {delegatedFrom && (
                 <span className="text-[var(--text-secondary)] font-normal">
