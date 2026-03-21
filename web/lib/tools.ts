@@ -19,7 +19,9 @@ export const toolDeclarations = [
   {
     name: "twenty_crm",
     description:
-      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). For create-contact, use flat JSON fields like {\"firstName\":\"John\",\"lastName\":\"Doe\",\"jobTitle\":\"CEO\",\"email\":\"j@co.com\",\"linkedinUrl\":\"https://linkedin.com/in/slug\",\"companyId\":\"uuid\"} — the tool auto-wraps into Twenty's composite format. For write-note, arg1=title, arg2=markdown content (supports full markdown). Workflow commands use a dedicated Workflow object (formerly Campaign) with inline spec field. Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, search-companies, create-company, get-company, list-campaigns, get-campaign, get-campaign-spec, update-campaign-spec, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
+      // NOTE: Server-side crm.sh still uses "campaign" command names for workflows.
+      // When crm.sh is updated to use "workflow" names, update these descriptions too.
+      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). For create-contact, use flat JSON fields like {\"firstName\":\"John\",\"lastName\":\"Doe\",\"jobTitle\":\"CEO\",\"email\":\"j@co.com\",\"linkedinUrl\":\"https://linkedin.com/in/slug\",\"companyId\":\"uuid\"} — the tool auto-wraps into Twenty's composite format. For write-note, arg1=title, arg2=markdown content (supports full markdown). Workflow commands (server still uses 'campaign' naming) use a dedicated Workflow object with inline spec field. Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, search-companies, create-company, get-company, list-campaigns, get-campaign, get-campaign-spec, update-campaign-spec, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -167,7 +169,7 @@ export const toolDeclarations = [
         date: {
           type: "string",
           description:
-            "ISO date/datetime for when it's due, e.g. 2026-12-25 or 2026-03-21T14:00:00-07:00 (for add/update)",
+            "ISO date/datetime for when it's due. For date-only birthdays/holidays use noon Pacific, e.g. 2026-03-28T12:00:00-07:00. ALWAYS include US Pacific timezone offset (for add/update)",
         },
         recurrence: {
           type: "string",
@@ -415,23 +417,28 @@ export async function executeTool(
         return items
           .map(
             (r) =>
-              `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""} (id: ${r.id})`
+              `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""} (id: ${r.id})`
           )
           .join("\n");
       }
       if (cmd === "add") {
         if (!args.title) return "Error: title is required";
         if (!args.category) return "Error: category is required (birthday, holiday, recurring, one-time, fact)";
-        // Build recurrence anchor from the date
+        // Normalize date-only strings to Pacific noon to avoid UTC midnight → wrong-day bugs
+        let dateStr: string | undefined = args.date;
+        if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          dateStr = `${dateStr}T12:00:00-07:00`;
+        }
+        // Build recurrence anchor from the date (use normalized string)
         let anchor: Record<string, number> | undefined;
-        if (args.recurrence === "yearly" && args.date) {
-          const d = new Date(args.date);
-          anchor = { month: d.getMonth() + 1, day: d.getDate() };
-        } else if (args.recurrence === "monthly" && args.date) {
-          const d = new Date(args.date);
-          anchor = { dayOfMonth: d.getDate() };
-        } else if (args.recurrence === "weekly" && args.date) {
-          const d = new Date(args.date);
+        if (args.recurrence === "yearly" && dateStr) {
+          const d = new Date(dateStr);
+          anchor = { month: d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "numeric" }) as unknown as number, day: parseInt(d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", day: "numeric" })) };
+        } else if (args.recurrence === "monthly" && dateStr) {
+          const d = new Date(dateStr);
+          anchor = { dayOfMonth: parseInt(d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", day: "numeric" })) };
+        } else if (args.recurrence === "weekly" && dateStr) {
+          const d = new Date(dateStr);
           anchor = { dayOfWeek: d.getDay() };
         } else if (args.recurrence === "daily") {
           anchor = {};
@@ -440,12 +447,12 @@ export async function executeTool(
           category: args.category,
           title: args.title,
           description: args.description,
-          nextDueAt: args.date || undefined,
+          nextDueAt: dateStr || undefined,
           recurrence: args.recurrence,
           recurrenceAnchor: anchor,
           advanceNoticeDays: args.advance_days ? parseInt(args.advance_days) : 0,
         });
-        return `Reminder created: "${reminder.title}" [${reminder.category}]${reminder.nextDueAt ? ` due ${new Date(reminder.nextDueAt).toLocaleDateString()}` : ""}${reminder.recurrence ? ` (${reminder.recurrence})` : ""} (id: ${reminder.id})`;
+        return `Reminder created: "${reminder.title}" [${reminder.category}]${reminder.nextDueAt ? ` due ${new Date(reminder.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""}${reminder.recurrence ? ` (${reminder.recurrence})` : ""} (id: ${reminder.id})`;
       }
       if (cmd === "update") {
         if (!args.id) return "Error: id is required for update";
@@ -453,7 +460,11 @@ export async function executeTool(
         if (args.title) updates.title = args.title;
         if (args.description) updates.description = args.description;
         if (args.category) updates.category = args.category;
-        if (args.date) updates.nextDueAt = args.date;
+        if (args.date) {
+          let ud = args.date;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(ud)) ud = `${ud}T12:00:00-07:00`;
+          updates.nextDueAt = ud;
+        }
         if (args.recurrence) updates.recurrence = args.recurrence;
         if (args.advance_days) updates.advanceNoticeDays = parseInt(args.advance_days);
         await updateReminder(args.id, updates);
@@ -470,7 +481,7 @@ export async function executeTool(
         return items
           .map(
             (r) =>
-              `[${r.category}] ${r.title} — ${r.nextDueAt ? new Date(r.nextDueAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "no date"}${r.advanceNoticeDays > 0 ? ` (${r.advanceNoticeDays}d advance notice)` : ""}${r.description ? ` — ${r.description}` : ""}`
+              `[${r.category}] ${r.title} — ${r.nextDueAt ? new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric" }) : "no date"}${r.advanceNoticeDays > 0 ? ` (${r.advanceNoticeDays}d advance notice)` : ""}${r.description ? ` — ${r.description}` : ""}`
           )
           .join("\n");
       }

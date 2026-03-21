@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,9 +23,13 @@ jobs:
       - name: Install dependencies
         run: cd web && npm ci
 
-      - name: Build
-        run: cd web && npm run build
+      - name: TypeScript check
+        run: cd web && npx tsc --noEmit
 
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
       - name: Set up SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -35,42 +39,39 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to server
+      - name: Build and deploy on server
         run: |
-          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
-            --exclude='.env*' \
-            --exclude='node_modules' \
-            web/ root@${{ secrets.DEPLOY_HOST }}:/opt/agent-tim/cloud-nanobot-tim/web/
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
+          set -e
+          cd /opt/agent-tim
 
-      - name: Update API keys on server
-        env:
-          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "
-            cd /opt/agent-tim/cloud-nanobot-tim/web &&
-            touch .env.local &&
-            if grep -q '^GEMINI_API_KEY=' .env.local; then
-              sed -i \"s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GEMINI_KEY}|\" .env.local
-            else
-              echo \"GEMINI_API_KEY=${GEMINI_KEY}\" >> .env.local
-            fi
-          "
+          # Pull latest code
+          git fetch origin master
+          git reset --hard origin/master
+          cd web
 
-      - name: Install production deps and restart
-        run: |
-          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "
-            cd /opt/agent-tim/cloud-nanobot-tim/web &&
-            npm ci --production &&
-            pm2 restart command-central --update-env &&
-            pm2 save
-          "
+          # Install dependencies
+          npm ci
+
+          # Build standalone output
+          npm run build
+
+          # Copy static assets into standalone (required by Next.js standalone mode)
+          cp -r public .next/standalone/public
+          cp -r .next/static .next/standalone/.next/static
+          cp .env.local .next/standalone/.env.local 2>/dev/null || true
+
+          # Restart
+          pm2 restart command-central --update-env || pm2 start ecosystem.config.js
+          pm2 save
+          EOF
 
       - name: Health check
         run: |
           sleep 5
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "curl -sf http://localhost:3001 > /dev/null" || {
-            echo "Health check failed! App may not be running."
-            ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 20 --nostream"
+            echo "Health check failed!"
+            ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 30 --nostream"
             exit 1
           }
           echo "Health check passed - Command Central is running."

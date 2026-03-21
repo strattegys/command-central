@@ -218,6 +218,22 @@ export function initCronJobs(): void {
     }
   }
 
+  // Register monthly holiday sync (1st of each month at 3:17 AM)
+  registerJob(
+    {
+      id: "holiday-sync",
+      name: "Holiday Sync",
+      schedule: "17 3 1 * *",
+      description: "Sync US holidays from Nager.Date API into reminders",
+      agentId: "suzi",
+      enabled: true,
+    },
+    async () => {
+      const { syncUpcomingHolidays } = await import("./holidays");
+      await syncUpcomingHolidays();
+    }
+  );
+
   console.log(`[cron] Registered ${jobRegistry.size} jobs`);
 }
 

@@ -65,7 +65,7 @@ export default function KanbanPage() {
       {/* Top bar */}
       <div className="h-12 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-4 gap-3">
         <Link
-          href="/chat"
+          href="/"
           className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
           title="Back to Chat"
         >

@@ -1,188 +1,80 @@
-# Agent Tim - Nanobot AI Assistant
+# Strattegys Command Central
 
-AI assistant deployed on DigitalOcean using Nanobot framework with Telegram integration and Twenty CRM access.
+Multi-agent web platform for business operations. Each agent has a specialized role and operates through a unified chat interface with contextual side panels.
 
-## Overview
+## Agents
 
-- **Framework**: Nanobot (MCP-native AI agent framework)
-- **Platform**: DigitalOcean Droplet (Ubuntu 24.04, 8GB RAM)
-- **Messaging**: Telegram (@timx509_bot)
-- **AI Model**: Gemini 2.5 Flash (via Google AI)
-- **Deployment**: Systemd service (nanobot gateway)
-
-## Deployment Information
-
-### Server Details
-- **Droplet IP**: 137.184.187.233
-- **OS**: Ubuntu 24.04 LTS (8GB RAM, 2 vCPU, 90GB disk)
-- **User**: `root`
-- **Installation Path**: `/root/.nanobot`
-
-### Bot Details
-- **Telegram Bot**: @timx509_bot
-- **Assistant Name**: Tim
-- **Chat Mode**: Main chat (responds to all messages, no trigger required)
-- **Chat ID**: tg:5289013326
+| Agent | Role | LLM |
+|-------|------|-----|
+| **Tim** | Business development, LinkedIn outreach, CRM | Gemini 2.5 Flash |
+| **Suzi** | Personal assistant, reminders, scheduling | Gemini 2.5 Flash |
+| **Friday** | Agent architect, workflow management | Gemini 2.5 Pro |
+| **Scout** | Research, web search, market intelligence | Gemini 2.5 Flash |
+| **Rainbow** | Child-friendly AI companion | Gemini (via Python server) |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│         Telegram Bot API                │
-│         (@timx509_bot)                  │
-└──────┬──────────────────────────────────┘
-       │
-       ▼
-┌─────────────────────────────────────────┐
-│      Nanobot Gateway                    │
-│      (Python, systemd service)          │
-│                                         │
-│  ├─ Telegram Channel Handler           │
-│  ├─ Agent Loop & Sessions              │
-│  ├─ Custom Tools (bash scripts)        │
-│  └─ Gemini 2.5 Flash LLM               │
-└──────┬──────────────────────────────────┘
-       │
-       ▼
-┌─────────────────────────────────────────┐
-│      Google AI API                      │
-│      (Gemini 2.5 Flash)                 │
-└─────────────────────────────────────────┘
-       │
-       ▼
-┌─────────────────────────────────────────┐
-│      Twenty CRM (localhost:3000)        │
-│      (via custom bash tools)            │
-└─────────────────────────────────────────┘
+Next.js (port 3001)          <- Command Central web UI (sole interface)
+  |-- Chat with all agents
+  |-- Kanban workflow boards
+  |-- Reminders panel
+  |-- Notification system
+
+Twenty CRM (port 3000)       <- Contact/company/workflow data (Docker)
+RainbowBot (port 18792)      <- Standalone Python server (systemd)
+Nginx                        <- TLS termination, reverse proxy
 ```
 
-## Key Features
+**Server**: DigitalOcean droplet at `137.184.187.233`
+**Domain**: `stratt-central.b2bcontentartist.com`
+**Process manager**: PM2 (`command-central`)
 
-- **MCP-Native**: Built on Model Context Protocol for tool integration
-- **Fast Responses**: Gemini 2.5 Flash provides sub-second response times
-- **CRM Integration**: Full access to Twenty CRM via custom tools
-- **Auto-restart**: Systemd service ensures bot restarts on failure or reboot
-- **Multi-Tool Support**: LinkedIn, web search, summarization, and CRM tools
-- **Workspace Integration**: Google Drive mounted at `/mnt/gdrive`
-
-## Directory Structure on Droplet
+## Directory Structure
 
 ```
-/root/.nanobot/
-├── config.json                  # Nanobot configuration
-├── system-prompt.md             # Tim's personality and instructions
-├── tools/
-│   ├── linkedin.sh              # LinkedIn integration tool
-│   ├── twenty_crm.sh            # Twenty CRM integration tool
-│   └── [custom tools]           # Other bash-based tools
-├── sessions/                    # Conversation sessions
-├── media/                       # Media files
-├── cron/                        # Scheduled tasks
-└── workspace/                   # Agent workspace
-
-/etc/systemd/system/
-└── nanobot.service              # Systemd service definition
-
-/mnt/gdrive/                     # Google Drive mount
-└── backups/                     # Backup storage
+web/                  <- Next.js app (the main project)
+  app/                <- Pages and API routes
+  components/         <- React components
+  lib/                <- Agent config, tools, cron, heartbeat
+  public/             <- Static assets, avatars, sounds
+tools/                <- Server-side CRM/LinkedIn shell scripts
+avabot/               <- RainbowBot Python server source
+friday/               <- Friday agent system prompt
+scripts/              <- Deployment scripts
+  deploy-web.sh       <- Main deploy script
+  deploy_avabot.sh    <- RainbowBot deploy
+docs/                 <- Historical migration docs
 ```
 
-## Configuration
+## Deployment
 
-The `/root/.nanobot/config.json` file contains:
-
-```json
-{
-  "providers": {
-    "groq": { "apiKey": "..." },
-    "gemini": { "apiKey": "..." }
-  },
-  "agents": {
-    "defaults": {
-      "model": "gemini/gemini-2.5-flash",
-      "workspace": "/mnt/gdrive"
-    }
-  },
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "..."
-    }
-  }
-}
-```
-
-## Service Management
-
-### View Logs
 ```bash
-ssh root@137.184.187.233 'journalctl -u nanobot -f'
+# One-command deploy (validates locally, pushes, builds on server)
+bash scripts/deploy-web.sh
 ```
 
-### Restart Service
+Requires SSH agent setup:
 ```bash
-ssh root@137.184.187.233 'systemctl restart nanobot'
+# In Git Bash (one-time per session)
+export SSH_AUTH_SOCK=/tmp/tim-agent.sock
+ssh-add C:/Users/USER1/.ssh/hetzner_ed25519
 ```
 
-### Check Status
+Auto-deploys via GitHub Actions on push to `master` (web/ changes only).
+
+## Local Development
+
 ```bash
-ssh root@137.184.187.233 'systemctl status nanobot'
+cd web
+npm install
+cp .env.local.example .env.local  # Fill in API keys
+npm run dev                        # http://localhost:3001
 ```
 
-### Stop Service
-```bash
-ssh root@137.184.187.233 'systemctl stop nanobot'
-```
+## Key Integrations
 
-### Start Service
-```bash
-ssh root@137.184.187.233 'systemctl start nanobot'
-```
-
-## Deployment Steps (Reference)
-
-Complete deployment process documented in `DEPLOYMENT.md`.
-
-## Troubleshooting
-
-See `TROUBLESHOOTING.md` for common issues and solutions.
-
-## Cost Considerations
-
-- **DigitalOcean Droplet**: ~$48/month (8GB RAM droplet)
-- **Google AI API**: Free tier (Gemini 2.5 Flash)
-  - 1500 requests per day (free)
-  - Very low cost beyond free tier
-- **Twenty CRM**: Self-hosted (no additional cost)
-
-## Security Notes
-
-- API keys stored in `/root/.nanobot/config.json`
-- Twenty CRM API key in custom tools (not exposed to LLM)
-- Service runs as root but tools are sandboxed
-- CRM data access restricted to private chat only
-- Delete operations require explicit confirmation
-
-## Current Integrations
-
-- [x] Telegram channel
-- [x] Twenty CRM (full CRUD access)
-- [x] LinkedIn (via ConnectSafely API)
-- [x] Web search (via Brave Search)
-- [x] Content summarization (via summarize CLI)
-- [x] Google Drive workspace
-
-## Future Enhancements
-
-- [ ] Automated CRM data enrichment
-- [ ] Workflow automation triggers
-- [ ] Scheduled CRM reports
-- [ ] Multi-channel support (WhatsApp, Discord)
-
-## References
-
-- [Nanobot GitHub](https://github.com/nanobot-ai/nanobot)
-- [Nanobot Documentation](https://www.nanobot.ai/)
-- [Twenty CRM Documentation](https://docs.twenty.com/)
-- [Telegram Bot API](https://core.telegram.org/bots/api)
-- [Google AI Documentation](https://ai.google.dev/)
+- **Twenty CRM** -- Contact management, workflows, notes (PostgreSQL via Docker)
+- **LinkedIn (Unipile)** -- Message sync, connection polling, inbound webhooks
+- **Google Gemini** -- LLM for all agents
+- **NextAuth** -- Authentication (credentials provider)

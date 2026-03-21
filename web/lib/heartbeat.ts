@@ -291,7 +291,7 @@ function checkWorkflowHealth(): HeartbeatFinding[] {
   const findings: HeartbeatFinding[] = [];
 
   try {
-    // List workflows (still uses list-campaigns on server until crm.sh is updated)
+    // List workflows — server crm.sh still uses "campaign" command names
     const result = execFileSync(
       join(TOOL_SCRIPTS_PATH, "twenty_crm_enhanced.sh"),
       ["list-campaigns"],
@@ -511,18 +511,21 @@ const deliveredReminders = new Set<string>();
 
 /**
  * Simple heartbeat for non-Tim agents.
- * Checks memory-based reminders and delivers via notification + autonomous chat.
+ * For Suzi: checks DB-based reminders. For others: checks memory-based reminders.
  */
 export async function runSimpleHeartbeat(agentId: string): Promise<void> {
+  if (agentId === "suzi") {
+    return runSuziDbHeartbeat();
+  }
+
+  // Legacy memory-based reminders for other agents
   const reminders = checkAgentReminders(agentId);
 
-  // Filter out already-delivered reminders (dedup for minute-level polling)
   const newReminders = reminders.filter(
     (r) => !deliveredReminders.has(`${agentId}:${r}`)
   );
 
   if (newReminders.length === 0) {
-    // Only log OK when there are truly zero due reminders (not just deduped ones)
     if (reminders.length === 0) {
       console.log(`[heartbeat] ${agentId} heartbeat OK`);
     }
@@ -531,12 +534,10 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
 
   console.log(`[heartbeat] ${agentId} found ${newReminders.length} due reminder(s)`);
 
-  // Mark as delivered before executing (prevents re-fire on next tick)
   for (const r of newReminders) {
     deliveredReminders.add(`${agentId}:${r}`);
   }
 
-  // Deliver reminders via autonomous chat
   try {
     const { autonomousChat } = await import("./gemini");
     const reminderList = newReminders
@@ -561,13 +562,86 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
     );
   } catch (err) {
     console.error(`[heartbeat] ${agentId} reminder delivery failed:`, err);
-    // Remove from delivered set so it retries next tick
     for (const r of newReminders) {
       deliveredReminders.delete(`${agentId}:${r}`);
     }
   }
 
-  // Clean up old entries periodically (delivered set could grow unbounded)
+  if (deliveredReminders.size > 200) {
+    deliveredReminders.clear();
+  }
+}
+
+/**
+ * DB-based heartbeat for Suzi. Checks _reminder table for due items.
+ */
+async function runSuziDbHeartbeat(): Promise<void> {
+  try {
+    const { getDueReminders, markDeliveredAndAdvance } = await import("./reminders");
+    const due = await getDueReminders("suzi");
+
+    // Filter out already-delivered (dedup for minute-level polling)
+    const newDue = due.filter(
+      (r) => !deliveredReminders.has(`suzi:${r.id}`)
+    );
+
+    if (newDue.length === 0) {
+      if (due.length === 0) {
+        console.log(`[heartbeat] suzi heartbeat OK`);
+      }
+      return;
+    }
+
+    console.log(`[heartbeat] suzi found ${newDue.length} due reminder(s) from DB`);
+
+    // Mark as delivered in dedup set
+    for (const r of newDue) {
+      deliveredReminders.add(`suzi:${r.id}`);
+    }
+
+    const { autonomousChat } = await import("./gemini");
+    const reminderList = newDue
+      .map((r) => {
+        const dueDate = r.nextDueAt
+          ? new Date(r.nextDueAt).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })
+          : "";
+        return `- [${r.category}] ${r.title}${dueDate ? ` (${dueDate})` : ""}${r.description ? `: ${r.description}` : ""}`;
+      })
+      .join("\n");
+
+    const prompt = [
+      `[REMINDER DELIVERY]`,
+      ``,
+      `The following reminders are now due:`,
+      ``,
+      reminderList,
+      ``,
+      `Deliver these reminders to Govind in a friendly, warm way. These have already been automatically marked as delivered in the database — no need to update memory.`,
+    ].join("\n");
+
+    await autonomousChat("suzi", prompt);
+
+    // Mark delivered in DB and advance recurring ones
+    for (const r of newDue) {
+      await markDeliveredAndAdvance(r.id);
+    }
+
+    writeNotification(
+      "Suzi Reminders",
+      newDue.map((r) => r.title).join("; ")
+    );
+  } catch (err) {
+    console.error(`[heartbeat] suzi DB reminder check failed:`, err);
+    // Clear dedup entries so they retry
+    for (const key of deliveredReminders) {
+      if (key.startsWith("suzi:")) deliveredReminders.delete(key);
+    }
+  }
+
   if (deliveredReminders.size > 200) {
     deliveredReminders.clear();
   }

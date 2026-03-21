@@ -34,6 +34,15 @@ Thumbs.db
 tmp/
 temp/
 
+# Node
+node_modules/
+.next/
+
+# Python
+*.pyc
+__pycache__/
+.venv/
+
 # NanoClaw legacy (deprecated)
 nanoclaw/
 **/nanoclaw/**
