@@ -59,10 +59,8 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
   }, [showSpec]);
 
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 cursor-pointer hover:border-[var(--text-tertiary)] transition-colors relative"
-      onClick={() => setShowSpec(true)}
-    >
-      {/* Name + alert badge */}
+    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 relative">
+      {/* Name + info button + alert badge */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-[var(--text-primary)] truncate flex-1">
           {workflow.name}
@@ -72,6 +70,17 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
             {workflow.alertCount}
           </span>
         )}
+        <button
+          onClick={() => setShowSpec(true)}
+          className="p-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+          title="View spec"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+        </button>
       </div>
 
       {/* Item type + board + owner */}
