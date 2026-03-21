@@ -104,6 +104,54 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     },
   },
 
+  "research-pipeline": {
+    id: "research-pipeline",
+    label: "Research Pipeline",
+    itemType: "person",
+    description:
+      "Track prospects through research, qualification, and handoff to outreach agents",
+    defaultBoard: {
+      stages: [
+        { key: "DISCOVERED", label: "Discovered", color: "#6b8a9e" },
+        { key: "RESEARCHING", label: "Researching", color: "#2563EB" },
+        { key: "QUALIFIED", label: "Qualified", color: "#16A34A" },
+        { key: "HANDED_OFF", label: "Handed Off", color: "#9B59B6" },
+        { key: "REJECTED", label: "Rejected", color: "#DC2626" },
+      ],
+      transitions: {
+        DISCOVERED: ["RESEARCHING", "REJECTED"],
+        RESEARCHING: ["QUALIFIED", "REJECTED"],
+        QUALIFIED: ["HANDED_OFF"],
+        HANDED_OFF: [],
+        REJECTED: [],
+      },
+    },
+  },
+
+  "content-distribution": {
+    id: "content-distribution",
+    label: "Content Distribution",
+    itemType: "content",
+    description:
+      "Track content repurposing and distribution across LinkedIn posts, messaging, and email",
+    defaultBoard: {
+      stages: [
+        { key: "RECEIVED", label: "Received", color: "#6b8a9e" },
+        { key: "REPURPOSING", label: "Repurposing", color: "#2563EB" },
+        { key: "LINKEDIN_POST", label: "LinkedIn Post", color: "#16A34A" },
+        { key: "MESSAGING", label: "Messaging", color: "#D85A30" },
+        { key: "DISTRIBUTED", label: "Distributed", color: "#9B59B6" },
+      ],
+      transitions: {
+        RECEIVED: ["REPURPOSING"],
+        REPURPOSING: ["LINKEDIN_POST", "MESSAGING"],
+        LINKEDIN_POST: ["DISTRIBUTED"],
+        MESSAGING: ["DISTRIBUTED"],
+        DISTRIBUTED: [],
+      },
+    },
+  },
+
   "email-campaign": {
     id: "email-campaign",
     label: "Email Campaign",

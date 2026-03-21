@@ -18,7 +18,7 @@ export interface AgentConfig {
   category: AgentCategory;
 }
 
-export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "Toys"] as const;
+export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "FinOps", "Toys"] as const;
 
 export function getFrontendAgents(): AgentConfig[] {
   return getAllAgentSpecs().map((spec) => ({

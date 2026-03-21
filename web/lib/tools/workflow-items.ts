@@ -1,0 +1,285 @@
+import type { ToolModule } from "./types";
+
+const tool: ToolModule = {
+  metadata: {
+    id: "workflow_items",
+    displayName: "Workflow Items",
+    category: "internal",
+    description:
+      "Add, move, and list items in workflows. Enables cross-agent pipeline handoffs (e.g., Scout adds targets to Tim's outreach).",
+    operations: [
+      "add-person-to-workflow",
+      "add-content-to-workflow",
+      "list-items",
+      "move-item",
+    ],
+    requiresApproval: false,
+  },
+
+  declaration: {
+    name: "workflow_items",
+    description:
+      "Manage items in workflows — add people or content, list items, move between stages. " +
+      "Commands: " +
+      "add-person-to-workflow (arg1=workflowId, arg2=personId, arg3=stage [optional, defaults to first stage]), " +
+      "add-content-to-workflow (arg1=workflowId, arg2=title, arg3=description, arg4=contentType [article|post|email], arg5=stage [optional]), " +
+      "list-items (arg1=workflowId, arg2=stage [optional filter]), " +
+      "move-item (arg1=itemId, arg2=newStage).",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item",
+        },
+        arg1: {
+          type: "string",
+          description: "First arg: workflowId (add/list) or itemId (move)",
+        },
+        arg2: {
+          type: "string",
+          description:
+            "Second arg: personId (add-person), title (add-content), stage filter (list-items), or newStage (move-item)",
+        },
+        arg3: {
+          type: "string",
+          description:
+            "Third arg: stage (add-person), description (add-content)",
+        },
+        arg4: {
+          type: "string",
+          description: "Fourth arg: contentType for add-content (article|post|email)",
+        },
+        arg5: {
+          type: "string",
+          description: "Fifth arg: stage for add-content",
+        },
+      },
+      required: ["command"],
+    },
+  },
+
+  async execute(args) {
+    const { query: dbQuery } = await import("../db");
+    const cmd = args.command;
+
+    // ─── add-person-to-workflow ──────────────────────────────────
+    if (cmd === "add-person-to-workflow") {
+      if (!args.arg1) return "Error: arg1 (workflowId) is required";
+      if (!args.arg2) return "Error: arg2 (personId) is required";
+
+      // Look up the workflow to get its board stages
+      const wfRows = await dbQuery(
+        `SELECT w."itemType", b.stages
+         FROM "_workflow" w
+         LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+         WHERE w.id = $1 AND w."deletedAt" IS NULL`,
+        [args.arg1]
+      );
+      if (wfRows.length === 0) return "Error: workflow not found";
+      const wf = wfRows[0] as Record<string, unknown>;
+      if (wf.itemType !== "person")
+        return "Error: this workflow tracks content, not people. Use add-content-to-workflow.";
+
+      // Determine stage — use provided or first board stage
+      let stage = args.arg3;
+      if (!stage) {
+        const stages = wf.stages as Array<{ key: string }> | null;
+        stage = stages?.[0]?.key || "TARGET";
+      }
+
+      // Check for duplicate
+      const existing = await dbQuery(
+        `SELECT id FROM "_workflow_item"
+         WHERE "workflowId" = $1 AND "sourceId" = $2 AND "deletedAt" IS NULL`,
+        [args.arg1, args.arg2]
+      );
+      if (existing.length > 0)
+        return `Person is already in this workflow (item id: ${(existing[0] as Record<string, unknown>).id})`;
+
+      // Get next position
+      const posRows = await dbQuery(
+        `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos
+         FROM "_workflow_item"
+         WHERE "workflowId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
+        [args.arg1, stage]
+      );
+      const nextPos = (posRows[0] as Record<string, unknown>).next_pos ?? 0;
+
+      const inserted = await dbQuery(
+        `INSERT INTO "_workflow_item" ("workflowId", "sourceType", "sourceId", stage, position, "createdAt", "updatedAt")
+         VALUES ($1, 'person', $2, $3, $4, NOW(), NOW()) RETURNING id`,
+        [args.arg1, args.arg2, stage, nextPos]
+      );
+      const itemId = (inserted[0] as Record<string, unknown>).id;
+
+      // Get person name for confirmation
+      const personRows = await dbQuery(
+        `SELECT "name" -> 'firstName' ->> 'value' AS first,
+                "name" -> 'lastName' ->> 'value' AS last
+         FROM person WHERE id = $1`,
+        [args.arg2]
+      );
+      const name =
+        personRows.length > 0
+          ? `${(personRows[0] as Record<string, unknown>).first || ""} ${(personRows[0] as Record<string, unknown>).last || ""}`.trim()
+          : args.arg2;
+
+      return `Added ${name} to workflow at stage ${stage} (item id: ${itemId})`;
+    }
+
+    // ─── add-content-to-workflow ──────────────────────────────────
+    if (cmd === "add-content-to-workflow") {
+      if (!args.arg1) return "Error: arg1 (workflowId) is required";
+      if (!args.arg2) return "Error: arg2 (title) is required";
+
+      const wfRows = await dbQuery(
+        `SELECT w."itemType", b.stages
+         FROM "_workflow" w
+         LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+         WHERE w.id = $1 AND w."deletedAt" IS NULL`,
+        [args.arg1]
+      );
+      if (wfRows.length === 0) return "Error: workflow not found";
+      const wf = wfRows[0] as Record<string, unknown>;
+      if (wf.itemType !== "content")
+        return "Error: this workflow tracks people, not content. Use add-person-to-workflow.";
+
+      const title = args.arg2;
+      const description = args.arg3 || "";
+      const contentType = args.arg4 || "article";
+
+      // Determine stage
+      let stage = args.arg5;
+      if (!stage) {
+        const stages = wf.stages as Array<{ key: string }> | null;
+        stage = stages?.[0]?.key || "IDEA";
+      }
+
+      // Create the content item
+      const contentRows = await dbQuery(
+        `INSERT INTO "_content_item" (title, description, "contentType", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+        [title, description, contentType]
+      );
+      const contentId = (contentRows[0] as Record<string, unknown>).id;
+
+      // Get next position
+      const posRows = await dbQuery(
+        `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos
+         FROM "_workflow_item"
+         WHERE "workflowId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
+        [args.arg1, stage]
+      );
+      const nextPos = (posRows[0] as Record<string, unknown>).next_pos ?? 0;
+
+      // Add to workflow
+      const inserted = await dbQuery(
+        `INSERT INTO "_workflow_item" ("workflowId", "sourceType", "sourceId", stage, position, "createdAt", "updatedAt")
+         VALUES ($1, 'content', $2, $3, $4, NOW(), NOW()) RETURNING id`,
+        [args.arg1, contentId, stage, nextPos]
+      );
+      const itemId = (inserted[0] as Record<string, unknown>).id;
+
+      return `Created content "${title}" and added to workflow at stage ${stage} (content id: ${contentId}, item id: ${itemId})`;
+    }
+
+    // ─── list-items ──────────────────────────────────────────────
+    if (cmd === "list-items") {
+      if (!args.arg1) return "Error: arg1 (workflowId) is required";
+
+      // Get workflow info
+      const wfRows = await dbQuery(
+        `SELECT "itemType" FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [args.arg1]
+      );
+      if (wfRows.length === 0) return "Error: workflow not found";
+      const itemType = (wfRows[0] as Record<string, unknown>).itemType;
+
+      const params: unknown[] = [args.arg1];
+      let stageFilter = "";
+      if (args.arg2) {
+        params.push(args.arg2);
+        stageFilter = ` AND wi.stage = $${params.length}`;
+      }
+
+      if (itemType === "person") {
+        const rows = await dbQuery(
+          `SELECT wi.id, wi.stage, wi.position,
+                  p."name" -> 'firstName' ->> 'value' AS first,
+                  p."name" -> 'lastName' ->> 'value' AS last,
+                  p."jobTitle" AS job_title,
+                  p."linkedinUrl" ->> 'value' AS linkedin
+           FROM "_workflow_item" wi
+           LEFT JOIN person p ON p.id = wi."sourceId"
+           WHERE wi."workflowId" = $1 AND wi."deletedAt" IS NULL${stageFilter}
+           ORDER BY wi.stage, wi.position ASC
+           LIMIT 100`,
+          params
+        );
+        if (rows.length === 0) return "No items in this workflow" + (args.arg2 ? ` at stage ${args.arg2}` : "") + ".";
+        return rows
+          .map(
+            (r: Record<string, unknown>) =>
+              `- [${r.stage}] ${r.first || ""} ${r.last || ""} — ${r.job_title || "no title"}${r.linkedin ? ` (${r.linkedin})` : ""} (id: ${r.id}, personId: ${r.first ? (r as Record<string, unknown>).id : "?"})`
+          )
+          .join("\n");
+      } else {
+        const rows = await dbQuery(
+          `SELECT wi.id, wi.stage, wi.position,
+                  ci.title, ci."contentType", ci.url
+           FROM "_workflow_item" wi
+           LEFT JOIN "_content_item" ci ON ci.id = wi."sourceId"
+           WHERE wi."workflowId" = $1 AND wi."deletedAt" IS NULL${stageFilter}
+           ORDER BY wi.stage, wi.position ASC
+           LIMIT 100`,
+          params
+        );
+        if (rows.length === 0) return "No items in this workflow" + (args.arg2 ? ` at stage ${args.arg2}` : "") + ".";
+        return rows
+          .map(
+            (r: Record<string, unknown>) =>
+              `- [${r.stage}] "${r.title || "untitled"}" (${r.contentType || "unknown"})${r.url ? ` — ${r.url}` : ""} (id: ${r.id})`
+          )
+          .join("\n");
+      }
+    }
+
+    // ─── move-item ───────────────────────────────────────────────
+    if (cmd === "move-item") {
+      if (!args.arg1) return "Error: arg1 (itemId) is required";
+      if (!args.arg2) return "Error: arg2 (newStage) is required";
+
+      const newStage = args.arg2.toUpperCase();
+
+      // Get next position in the target stage
+      const itemRows = await dbQuery(
+        `SELECT "workflowId" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [args.arg1]
+      );
+      if (itemRows.length === 0) return "Error: item not found";
+      const workflowId = (itemRows[0] as Record<string, unknown>).workflowId;
+
+      const posRows = await dbQuery(
+        `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos
+         FROM "_workflow_item"
+         WHERE "workflowId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
+        [workflowId, newStage]
+      );
+      const nextPos = (posRows[0] as Record<string, unknown>).next_pos ?? 0;
+
+      await dbQuery(
+        `UPDATE "_workflow_item" SET stage = $1, position = $2, "updatedAt" = NOW()
+         WHERE id = $3 AND "deletedAt" IS NULL`,
+        [newStage, nextPos, args.arg1]
+      );
+
+      return `Item ${args.arg1} moved to stage ${newStage}`;
+    }
+
+    return "Unknown workflow_items command. Use: add-person-to-workflow, add-content-to-workflow, list-items, move-item";
+  },
+};
+
+export default tool;

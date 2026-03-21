@@ -8,14 +8,83 @@
 import type { AgentSpec } from "./agent-spec";
 
 export const AGENT_REGISTRY: Record<string, AgentSpec> = {
+  // ─── MarkOps: Scout before Tim (Scout finds targets, Tim engages) ───
+
+  scout: {
+    id: "scout",
+    name: "Scout",
+    role: "Intelligence & Research",
+    description:
+      "Finds and qualifies LinkedIn prospects for outreach campaigns. " +
+      "Researches targets via LinkedIn profiles and web search, then loads qualified " +
+      "prospects into Tim's outreach pipeline.",
+    category: "MarkOps",
+    color: "#2563EB",
+    sessionFile: "/root/.scoutbot/sessions/internal.jsonl",
+    systemPromptFile: "/root/.scoutbot/system-prompt.md",
+    memoryDir: "/root/.scoutbot/memory",
+    tools: [
+      "web_search",
+      "twenty_crm",
+      "linkedin",
+      "memory",
+      "delegate_task",
+      "workflow_items",
+    ],
+    capabilities: [
+      "Target research",
+      "LinkedIn profiling",
+      "Company intel",
+      "Prospect qualification",
+    ],
+    connections: [
+      { label: "Web search", connected: true, toolId: "web_search" },
+      { label: "CRM", connected: true, toolId: "twenty_crm" },
+      { label: "LinkedIn", connected: true, toolId: "linkedin" },
+    ],
+    routines: [
+      {
+        id: "daily-target-research",
+        name: "Daily Target Research",
+        schedule: "0 8 * * 1-5",
+        description:
+          "Process research pipeline: research targets, qualify, load into Tim's outreach",
+        handler: "scout-daily-research",
+      },
+    ],
+    heartbeat: {
+      type: "scout",
+      schedule: "*/10 * * * *",
+      checks: [
+        {
+          name: "Delegated Tasks",
+          description:
+            "Processes research tasks queued by other agents",
+          priority: "high",
+        },
+        {
+          name: "Research Pipeline",
+          description:
+            "Checks for unprocessed targets in DISCOVERED stage",
+          priority: "medium",
+        },
+      ],
+    },
+    workflowTypes: ["research-pipeline"],
+    delegation: {
+      canDelegateTo: ["tim"],
+      acceptsTaskTypes: ["research", "company-intel", "contact-discovery"],
+    },
+  },
+
   tim: {
     id: "tim",
     name: "Tim",
     role: "Marketing & Sales Assistant",
     description:
-      "Manages LinkedIn outreach, CRM operations, and sales workflows. " +
-      "Can send messages, track prospects through pipelines, schedule follow-ups, " +
-      "and delegate research to Scout.",
+      "Executes LinkedIn outreach — sends connection requests, manages responses, " +
+      "schedules follow-ups. Receives qualified targets from Scout and messaging " +
+      "content from Marni.",
     category: "MarkOps",
     color: "#1D9E75",
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
@@ -28,6 +97,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "web_search",
       "memory",
       "delegate_task",
+      "workflow_items",
     ],
     capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Workflows"],
     connections: [
@@ -102,9 +172,11 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     workflowTypes: ["linkedin-outreach"],
     delegation: {
       canDelegateTo: ["scout"],
-      acceptsTaskTypes: [],
+      acceptsTaskTypes: ["outreach-target", "messaging-content"],
     },
   },
+
+  // ─── Utility ───
 
   suzi: {
     id: "suzi",
@@ -179,75 +251,44 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     },
   },
 
-  scout: {
-    id: "scout",
-    name: "Scout",
-    role: "Intelligence & Research",
-    description:
-      "Web research, company intelligence, contact discovery, and market analysis. " +
-      "Works autonomously on tasks delegated by Tim and Friday.",
-    category: "MarkOps",
-    color: "#2563EB",
-    sessionFile: "/root/.scoutbot/sessions/internal.jsonl",
-    systemPromptFile: "/root/.scoutbot/system-prompt.md",
-    memoryDir: "/root/.scoutbot/memory",
-    tools: ["web_search", "twenty_crm", "memory"],
-    capabilities: [
-      "Web research",
-      "Company intel",
-      "Contact discovery",
-      "Market analysis",
-    ],
-    connections: [
-      { label: "Web search", connected: true, toolId: "web_search" },
-      { label: "CRM", connected: true, toolId: "twenty_crm" },
-    ],
-    routines: [],
-    heartbeat: {
-      type: "scout",
-      schedule: "*/10 * * * *",
-      checks: [
-        {
-          name: "Delegated Tasks",
-          description:
-            "Processes research tasks queued by other agents",
-          priority: "high",
-        },
-      ],
-    },
-    workflowTypes: [],
-    delegation: {
-      canDelegateTo: [],
-      acceptsTaskTypes: ["research", "company-intel", "contact-discovery"],
-    },
-  },
+  // ─── ContentOps ───
 
   ghost: {
     id: "ghost",
     name: "Ghost",
-    role: "ContentOps",
+    role: "Content Research & Strategy",
     description:
-      "Content operations agent handling blog posts, copywriting, social content, " +
-      "and content strategy. Manages content pipeline workflows.",
+      "Content researcher and strategist — finds killer ideas, does deep research, " +
+      "manages the content pipeline. Feeds published content to Marni for distribution " +
+      "and can discover prospects for Scout.",
     category: "ContentOps",
     color: "#4A90D9",
     modelName: "gemini-2.5-pro",
     sessionFile: "/root/.ghostbot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.ghostbot/system-prompt.md",
     memoryDir: "/root/.ghostbot/memory",
-    tools: ["web_search", "kanban", "memory"],
-    capabilities: [
-      "Blog posts",
-      "Copywriting",
-      "Social content",
-      "Content strategy",
+    tools: [
+      "web_search",
+      "memory",
+      "delegate_task",
+      "twenty_crm",
+      "workflow_items",
     ],
-    connections: [{ label: "Web search", connected: true, toolId: "web_search" }],
+    capabilities: [
+      "Content research",
+      "Blog posts",
+      "Content strategy",
+      "Prospect discovery",
+    ],
+    connections: [
+      { label: "Web search", connected: true, toolId: "web_search" },
+      { label: "CRM", connected: true, toolId: "twenty_crm" },
+    ],
     routines: [],
     heartbeat: null,
     workflowTypes: ["content-pipeline"],
     delegation: {
-      canDelegateTo: ["marni"],
+      canDelegateTo: ["marni", "scout"],
       acceptsTaskTypes: ["content-creation", "copywriting"],
     },
   },
@@ -257,28 +298,109 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     name: "Marni",
     role: "Content Distribution",
     description:
-      "Handles content distribution, post execution, and engagement. " +
-      "Distributes content created by Ghost across channels.",
+      "Takes Ghost's published content and creates derivative pieces — LinkedIn posts, " +
+      "outreach messaging (fed to Tim), and email content. Manages the distribution pipeline.",
     category: "ContentOps",
     color: "#D4A017",
     sessionFile: "/root/.marnibot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.marnibot/system-prompt.md",
     memoryDir: "/root/.marnibot/memory",
-    tools: ["web_search", "memory"],
-    capabilities: [
-      "Content distribution",
-      "Post execution",
-      "Engagement & commenting",
+    tools: [
+      "web_search",
+      "memory",
+      "linkedin",
+      "delegate_task",
+      "twenty_crm",
+      "workflow_items",
     ],
-    connections: [{ label: "LinkedIn", connected: false }],
+    capabilities: [
+      "LinkedIn posts",
+      "Outreach messaging",
+      "Content repurposing",
+      "Email content",
+    ],
+    connections: [
+      { label: "LinkedIn", connected: true, toolId: "linkedin" },
+      { label: "CRM", connected: true, toolId: "twenty_crm" },
+      { label: "Web search", connected: true, toolId: "web_search" },
+    ],
+    routines: [],
+    heartbeat: null,
+    workflowTypes: ["content-distribution"],
+    delegation: {
+      canDelegateTo: ["tim"],
+      acceptsTaskTypes: ["distribution", "posting"],
+    },
+  },
+
+  // ─── FinOps ───
+
+  penny: {
+    id: "penny",
+    name: "Penny",
+    role: "Package Builder & Client Liaison",
+    description:
+      "Creates service packages from templates, customizes deliverables for clients, " +
+      "manages approval workflows, and triggers cross-agent workflow creation on approval.",
+    category: "FinOps",
+    color: "#E67E22",
+    sessionFile: "/root/.pennybot/sessions/web_govind.jsonl",
+    systemPromptFile: "/root/.pennybot/system-prompt.md",
+    memoryDir: "/root/.pennybot/memory",
+    tools: [
+      "package_manager",
+      "twenty_crm",
+      "web_search",
+      "memory",
+      "delegate_task",
+    ],
+    capabilities: [
+      "Package building",
+      "Client proposals",
+      "CRM lookup",
+      "Workflow orchestration",
+    ],
+    connections: [
+      { label: "Packages", connected: true, toolId: "package_manager" },
+      { label: "CRM", connected: true, toolId: "twenty_crm" },
+      { label: "Web search", connected: true, toolId: "web_search" },
+    ],
+    routines: [],
+    heartbeat: null,
+    workflowTypes: [],
+    delegation: {
+      canDelegateTo: ["tim", "scout", "ghost", "marni"],
+      acceptsTaskTypes: ["package-request"],
+    },
+  },
+
+  king: {
+    id: "king",
+    name: "King",
+    role: "Financial Controller",
+    description:
+      "Handles pricing, invoicing, and financial tracking. " +
+      "Currently a placeholder — tools and capabilities coming soon.",
+    category: "FinOps",
+    color: "#2C2C2C",
+    sessionFile: "/root/.kingbot/sessions/web_govind.jsonl",
+    systemPromptFile: "/root/.kingbot/system-prompt.md",
+    memoryDir: "/root/.kingbot/memory",
+    tools: ["web_search", "memory"],
+    capabilities: ["Pricing (coming soon)", "Invoicing (coming soon)"],
+    connections: [
+      { label: "Web search", connected: true, toolId: "web_search" },
+    ],
     routines: [],
     heartbeat: null,
     workflowTypes: [],
     delegation: {
       canDelegateTo: [],
-      acceptsTaskTypes: ["distribution", "posting"],
+      acceptsTaskTypes: [],
     },
   },
+
+  // ─── Toys ───
 
   rainbow: {
     id: "rainbow",
@@ -322,11 +444,12 @@ export function getAgentSpec(agentId: string): AgentSpec {
 
 /** Get all agent specs as an array, ordered for sidebar display. */
 export function getAllAgentSpecs(): AgentSpec[] {
-  // Sidebar ordering: Utility, MarkOps, ContentOps, Toys
+  // Sidebar ordering: Utility, MarkOps, ContentOps, FinOps, Toys
   const order: AgentSpec["category"][] = [
     "Utility",
     "MarkOps",
     "ContentOps",
+    "FinOps",
     "Toys",
   ];
   return Object.values(AGENT_REGISTRY).sort(

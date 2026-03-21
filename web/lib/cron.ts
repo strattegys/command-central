@@ -136,6 +136,65 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
       console.log(`[cron] Processed ${count} new LinkedIn connection(s)`);
     }
   },
+
+  "scout-daily-research": () => async () => {
+    const { autonomousChat } = await import("./gemini");
+    const { query: dbQuery } = await import("./db");
+
+    // Check for DISCOVERED items across Scout's research-pipeline workflows
+    const workflows = await dbQuery(
+      `SELECT w.id, w.name FROM "_workflow" w
+       WHERE w."ownerAgent" = 'scout' AND w.stage = 'ACTIVE' AND w."deletedAt" IS NULL`
+    );
+    if (workflows.length === 0) {
+      console.log("[cron] Scout daily research: no active research-pipeline workflows");
+      return;
+    }
+
+    const wfIds = workflows.map((w: Record<string, unknown>) => w.id);
+    const items = await dbQuery(
+      `SELECT wi.id, wi."workflowId",
+              p."name" -> 'firstName' ->> 'value' AS first,
+              p."name" -> 'lastName' ->> 'value' AS last,
+              p."linkedinUrl" ->> 'value' AS linkedin
+       FROM "_workflow_item" wi
+       LEFT JOIN person p ON p.id = wi."sourceId"
+       WHERE wi."workflowId" = ANY($1) AND wi.stage = 'DISCOVERED' AND wi."deletedAt" IS NULL
+       LIMIT 10`,
+      [wfIds]
+    );
+
+    if (items.length === 0) {
+      console.log("[cron] Scout daily research: no DISCOVERED targets to process");
+      return;
+    }
+
+    const targetList = items
+      .map(
+        (i: Record<string, unknown>) =>
+          `- ${i.first || ""} ${i.last || ""} (linkedin: ${i.linkedin || "unknown"}, item id: ${i.id}, workflow: ${i.workflowId})`
+      )
+      .join("\n");
+
+    const prompt = `[DAILY RESEARCH ROUTINE]
+
+You have ${items.length} target(s) in DISCOVERED stage awaiting research:
+
+${targetList}
+
+For each target:
+1. Use linkedin fetch-profile to get their full profile data
+2. Use web_search to find recent news about them or their company
+3. Evaluate fit against the campaign criteria stored in your memory
+4. If qualified: use workflow_items move-item to move them to RESEARCHING, then QUALIFIED
+5. If not a fit: use workflow_items move-item to move them to REJECTED
+6. For qualified targets: use workflow_items add-person-to-workflow to add them to Tim's active linkedin-outreach workflow at TARGET stage, then move the item to HANDED_OFF
+
+Summarize your findings for each target.`;
+
+    console.log(`[cron] Scout daily research: processing ${items.length} target(s)`);
+    await autonomousChat("scout", prompt);
+  },
 };
 
 // ─── Heartbeat handler factory ───

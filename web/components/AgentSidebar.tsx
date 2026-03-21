@@ -4,11 +4,18 @@ import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import NotificationBell from "./NotificationBell";
 
+type ViewMode = "agents" | "toys";
+
+const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
+const TOY_CATEGORIES = AGENT_CATEGORIES.filter((c) => c === "Toys");
+
 interface AgentSidebarProps {
   agents: AgentConfig[];
   activeAgent: string;
   onSelect: (id: string) => void;
   unreadCounts?: Record<string, number>;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
 }
 
 export default function AgentSidebar({
@@ -16,24 +23,50 @@ export default function AgentSidebar({
   activeAgent,
   onSelect,
   unreadCounts = {},
+  viewMode = "agents",
+  onViewModeChange,
 }: AgentSidebarProps) {
+  const categories = viewMode === "toys" ? TOY_CATEGORIES : TEAM_CATEGORIES;
+
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="h-11 shrink-0 px-4 text-sm font-medium border-b border-[var(--border-color)] flex items-center">
-        <span>Agents</span>
+      <div className="h-11 shrink-0 px-4 text-sm font-medium border-b border-[var(--border-color)] flex items-center gap-1">
+        {/* Toggle buttons */}
+        <button
+          onClick={() => onViewModeChange?.("agents")}
+          className="text-sm font-medium transition-colors"
+          style={{
+            color: viewMode === "agents" ? "var(--text-primary)" : "var(--text-tertiary)",
+          }}
+        >
+          Agents
+        </button>
+        <span className="text-[var(--text-tertiary)] text-xs">/</span>
+        <button
+          onClick={() => onViewModeChange?.("toys")}
+          className="text-sm font-medium transition-colors"
+          style={{
+            color: viewMode === "toys" ? "var(--text-primary)" : "var(--text-tertiary)",
+          }}
+        >
+          Toys
+        </button>
         <div className="ml-auto">
           <NotificationBell />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {AGENT_CATEGORIES.map((category) => {
+        {categories.map((category) => {
           const categoryAgents = agents.filter((a) => a.category === category);
           if (categoryAgents.length === 0) return null;
           return (
             <div key={category}>
-              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                {category}
-              </div>
+              {/* Hide category header in Toys view since there's only one */}
+              {viewMode === "agents" && (
+                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  {category}
+                </div>
+              )}
               {categoryAgents.map((agent) => {
                 const unread = unreadCounts[agent.id] || 0;
                 return (

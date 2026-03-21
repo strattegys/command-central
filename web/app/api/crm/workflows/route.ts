@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = await query<WorkflowRow>(
-      `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId", w."ownerAgent",
+      `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId", w."ownerAgent", w."packageId",
               b.id AS board_id, b.name AS board_name, b.description AS board_description,
               b.stages AS board_stages, b.transitions AS board_transitions
        FROM "_workflow" w
@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       itemType: r.itemType || "person",
       boardId: r.boardId,
       ownerAgent: (r as Record<string, unknown>).ownerAgent as string | null,
+      packageId: (r as Record<string, unknown>).packageId as string | null,
       board: r.board_id
         ? ({
             id: r.board_id,

@@ -8,6 +8,7 @@ import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
+import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
@@ -34,6 +35,7 @@ function ChatPage() {
   // Each agent's default panel when selected
   function defaultPanelFor(agentId: string): "info" | "kanban" | "dashboard" | "reminders" {
     if (agentId === "friday") return "dashboard";
+    if (agentId === "penny") return "dashboard";
     if (agentId === "suzi") return "reminders";
     if (agentHasKanban(agentId)) return "kanban";
     return "info";
@@ -46,6 +48,7 @@ function ChatPage() {
     (paramPanel as "info" | "kanban" | "dashboard" | "reminders") || defaultPanelFor(paramAgent || "suzi")
   );
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -398,14 +401,28 @@ function ChatPage() {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
-        <div className="h-12 shrink-0 border-b border-[var(--border-color)] flex items-center px-4">
-          <span className="text-sm font-medium">Agents</span>
+        <div className="h-12 shrink-0 border-b border-[var(--border-color)] flex items-center px-4 gap-1">
+          <button
+            onClick={() => setSidebarView("agents")}
+            className="text-sm font-medium transition-colors"
+            style={{ color: sidebarView === "agents" ? "var(--text-primary)" : "var(--text-tertiary)" }}
+          >
+            Agents
+          </button>
+          <span className="text-[var(--text-tertiary)] text-xs">/</span>
+          <button
+            onClick={() => setSidebarView("toys")}
+            className="text-sm font-medium transition-colors"
+            style={{ color: sidebarView === "toys" ? "var(--text-primary)" : "var(--text-tertiary)" }}
+          >
+            Toys
+          </button>
           <div className="ml-auto">
             <NotificationBell />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {AGENT_CATEGORIES.map((category) => {
+          {AGENT_CATEGORIES.filter((c) => sidebarView === "toys" ? c === "Toys" : c !== "Toys").map((category) => {
             const categoryAgents = agents.filter((a) => a.category === category);
             if (categoryAgents.length === 0) return null;
             return (
@@ -517,6 +534,29 @@ function ChatPage() {
           agents={agents}
           activeAgent={activeAgent}
           unreadCounts={unreadCounts}
+          viewMode={sidebarView}
+          onViewModeChange={(mode) => {
+            setSidebarView(mode);
+            // Auto-select first agent in the new view if current agent isn't visible
+            const isToy = agents.find((a) => a.id === activeAgent)?.category === "Toys";
+            if (mode === "toys" && !isToy) {
+              const firstToy = agents.find((a) => a.category === "Toys");
+              if (firstToy) {
+                loadedAgentRef.current = null;
+                setReplyTo(null);
+                setActiveAgent(firstToy.id);
+                setRightPanel(defaultPanelFor(firstToy.id));
+              }
+            } else if (mode === "agents" && isToy) {
+              const firstAgent = agents.find((a) => a.category !== "Toys");
+              if (firstAgent) {
+                loadedAgentRef.current = null;
+                setReplyTo(null);
+                setActiveAgent(firstAgent.id);
+                setRightPanel(defaultPanelFor(firstAgent.id));
+              }
+            }
+          }}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -669,7 +709,7 @@ function ChatPage() {
                 </svg>
               </button>
             )}
-            {activeAgent === "friday" && (
+            {(activeAgent === "friday" || activeAgent === "penny") && (
               <button
                 onClick={() => setRightPanel("dashboard")}
                 className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
@@ -677,7 +717,7 @@ function ChatPage() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Friday dashboard"
+                title={activeAgent === "penny" ? "Packages dashboard" : "Friday dashboard"}
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -728,6 +768,8 @@ function ChatPage() {
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
             <FridayDashboardPanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "dashboard" && activeAgent === "penny" ? (
+            <PennyDashboardPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
             <SuziRemindersPanel onClose={() => setRightPanel("info")} />
           ) : (

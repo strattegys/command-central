@@ -17,15 +17,16 @@ export type ToolId =
   | "memory"
   | "agent_manager"
   | "delegate_task"
-  | "kanban"
+  | "workflow_items"
   | "reminders"
-  | "workflow_manager";
+  | "workflow_manager"
+  | "package_manager";
 
 // ─── Agent Categories ───
 
-export type AgentCategory = "Utility" | "MarkOps" | "ContentOps" | "Toys";
+export type AgentCategory = "Utility" | "MarkOps" | "ContentOps" | "FinOps" | "Toys";
 
-export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "Toys"] as const;
+export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "FinOps", "Toys"] as const;
 
 // ─── Connection descriptor ───
 

@@ -14,6 +14,8 @@ export const APPROVAL_PHRASES = [
   "schedule it now",
   "go ahead and send",
   "go ahead and schedule",
+  "approve package",
+  "approve it now",
 ];
 
 export function hasUserApproval(lastUserMessage: string): boolean {

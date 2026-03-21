@@ -18,6 +18,8 @@ import memoryTool from "./memory-tool";
 import remindersTool from "./reminders-tool";
 import delegateTask from "./delegate-task";
 import workflowManager from "./workflow-manager";
+import workflowItems from "./workflow-items";
+import packageManager from "./package-manager";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 export const TOOL_REGISTRY: Record<string, ToolModule> = {
@@ -29,6 +31,8 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   reminders: remindersTool,
   delegate_task: delegateTask,
   workflow_manager: workflowManager,
+  workflow_items: workflowItems,
+  package_manager: packageManager,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────
