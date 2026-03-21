@@ -367,22 +367,30 @@ export async function chatStream(
       }
     }
 
+    const toolNames: string[] = [];
     const functionResponses = await Promise.all(
       functionCalls.map(async (fc) => {
+        const toolName = fc.functionCall!.name!;
         const result = await executeTool(
-          fc.functionCall!.name!,
+          toolName,
           (fc.functionCall!.args as Record<string, string>) || {},
           userMessage,
           agentId
         );
+        toolNames.push(toolName);
         return {
           functionResponse: {
-            name: fc.functionCall!.name!,
+            name: toolName,
             response: { result },
           },
         };
       })
     );
+
+    // Notify the client which tools were used (for panel refresh)
+    for (const tn of toolNames) {
+      onChunk(`\n<!--toolUsed:${tn}-->`);
+    }
 
     contents.push({ role: "user", parts: functionResponses });
   }

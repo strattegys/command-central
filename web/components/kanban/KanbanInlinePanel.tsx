@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import KanbanBoard from "./KanbanBoard";
 import WorkflowSelector from "./WorkflowSelector";
 import ItemDetailPanel from "./ItemDetailPanel";
 import type { ItemAlert } from "./KanbanCard";
 import type { StageConfig, WorkflowItem, WorkflowWithBoard } from "@/lib/board-types";
+import { panelBus } from "@/lib/events";
 
 interface KanbanInlinePanelProps {
   onClose: () => void;
@@ -48,11 +49,21 @@ export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePane
     }
   }, []);
 
+  const workflowIdRef = useRef(workflowId);
+  workflowIdRef.current = workflowId;
+
   useEffect(() => {
     setSelectedItem(null);
     fetchItems(workflowId);
     if (workflowId) localStorage.setItem("kanban_workflow", workflowId);
   }, [workflowId, fetchItems]);
+
+  // Refresh when agent tools modify CRM data
+  useEffect(() => {
+    const refetch = () => { if (workflowIdRef.current) fetchItems(workflowIdRef.current); };
+    const unsub = panelBus.on("twenty_crm", refetch);
+    return unsub;
+  }, [fetchItems]);
 
   const handleWorkflowLoaded = useCallback((workflow: WorkflowWithBoard | null) => {
     if (workflow?.board) {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
+import { panelBus } from "@/lib/events";
 
 const COLUMNS = [
   { key: "PLANNING", label: "Planning", color: "#6b8a9e" },
@@ -33,7 +34,8 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
     mountedRef.current = true;
     fetchWorkflows();
     const interval = setInterval(fetchWorkflows, POLL_INTERVAL);
-    return () => { mountedRef.current = false; clearInterval(interval); };
+    const unsub = panelBus.on("workflow_manager", fetchWorkflows);
+    return () => { mountedRef.current = false; clearInterval(interval); unsub(); };
   }, [fetchWorkflows]);
 
   return (

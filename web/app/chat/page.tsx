@@ -13,11 +13,9 @@ import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
 import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
+import { panelBus } from "@/lib/events";
 import Link from "next/link";
 
-// Re-export for components that import from this file
-export type { AgentConfig };
-export { AGENT_CATEGORIES };
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
 
@@ -332,11 +330,23 @@ function ChatPage() {
                   )
                 );
               } else if (parsed.text) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === botMsgId ? { ...m, text: m.text + parsed.text } : m
-                  )
-                );
+                // Detect tool-used markers and emit panel refresh events
+                const toolMatch = parsed.text.match(/<!--toolUsed:(\w+)-->/g);
+                if (toolMatch) {
+                  for (const m of toolMatch) {
+                    const name = m.replace("<!--toolUsed:", "").replace("-->", "");
+                    panelBus.emit(name);
+                  }
+                }
+                // Strip markers from displayed text
+                const displayText = parsed.text.replace(/\n?<!--toolUsed:\w+-->/g, "");
+                if (displayText) {
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === botMsgId ? { ...msg, text: msg.text + displayText } : msg
+                    )
+                  );
+                }
               }
             } catch {
               // skip malformed chunks
