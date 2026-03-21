@@ -59,7 +59,7 @@ export default function MessageBubble({
           className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden text-[var(--text-primary)]"
           style={{
             background: isUser ? "var(--bg-tertiary)" : agentBg,
-            ...(isUser ? { border: "1px solid rgba(74, 158, 202, 0.35)" } : {}),
+            border: isUser ? "1px solid rgba(74, 158, 202, 0.35)" : `1px solid ${agentColor}40`,
           }}
         >
           {replyTo && (
