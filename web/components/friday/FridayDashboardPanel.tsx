@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
+import TemplateCard from "./TemplateCard";
 import ToolsPanel from "./ToolsPanel";
+import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
 
 const COLUMNS = [
@@ -14,7 +16,7 @@ const COLUMNS = [
 
 const POLL_INTERVAL = 5000;
 
-type Tab = "workflows" | "tools";
+type Tab = "workflows" | "templates" | "tools";
 
 interface FridayDashboardPanelProps {
   onClose: () => void;
@@ -25,6 +27,8 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
   const [workflows, setWorkflows] = useState<WorkflowStat[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+
+  const templates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
 
   const fetchWorkflows = useCallback(() => {
     fetch("/api/crm/workflow-stats")
@@ -42,42 +46,63 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
     return () => { mountedRef.current = false; clearInterval(interval); unsub(); };
   }, [fetchWorkflows]);
 
+  const TABS: { key: Tab; label: string; count?: string }[] = [
+    {
+      key: "workflows",
+      label: "Workflows",
+      count: loading ? "..." : `${workflows.length}`,
+    },
+    {
+      key: "templates",
+      label: "Templates",
+      count: `${templates.length}`,
+    },
+    {
+      key: "tools",
+      label: "Tools",
+    },
+  ];
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       {/* Header with tabs */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        <button
-          onClick={() => setTab("workflows")}
-          className="text-xs font-semibold px-2 py-1 rounded transition-colors"
-          style={{
-            color: tab === "workflows" ? "var(--text-primary)" : "var(--text-tertiary)",
-            background: tab === "workflows" ? "var(--bg-tertiary)" : "transparent",
-          }}
-        >
-          Workflows
-        </button>
-        <button
-          onClick={() => setTab("tools")}
-          className="text-xs font-semibold px-2 py-1 rounded transition-colors"
-          style={{
-            color: tab === "tools" ? "var(--text-primary)" : "var(--text-tertiary)",
-            background: tab === "tools" ? "var(--bg-tertiary)" : "transparent",
-          }}
-        >
-          Tools
-        </button>
-        <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {tab === "workflows"
-            ? loading
-              ? "Loading..."
-              : `${workflows.length} workflow${workflows.length !== 1 ? "s" : ""}`
-            : "Tool Registry"}
-        </span>
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className="text-xs font-semibold px-2 py-1 rounded transition-colors flex items-center gap-1.5"
+            style={{
+              color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
+              background: tab === t.key ? "var(--bg-tertiary)" : "transparent",
+            }}
+          >
+            {t.label}
+            {t.count && (
+              <span
+                className="text-[10px] font-normal"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Tab content */}
       {tab === "tools" ? (
         <ToolsPanel />
+      ) : tab === "templates" ? (
+        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          {templates.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center py-12">
+              <p className="text-sm text-[var(--text-tertiary)]">No templates defined</p>
+            </div>
+          ) : (
+            templates.map((t) => <TemplateCard key={t.id} template={t} />)
+          )}
+        </div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-[var(--text-tertiary)]">Loading workflows...</p>

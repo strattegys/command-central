@@ -134,6 +134,9 @@ else
   echo "  Dependencies unchanged — skipping npm ci"
 fi
 
+# Clear stale build lock if present
+rm -f .next/lock
+
 # Build
 echo "  Building Next.js (standalone)..."
 npm run build
@@ -146,9 +149,10 @@ cp -r .next/static .next/standalone/.next/static
 # Copy env file into standalone (standalone server reads from its own dir)
 cp .env.local .next/standalone/.env.local 2>/dev/null || true
 
-# Restart PM2
+# Restart PM2 — delete and re-create to ensure correct cwd and script
 echo "  Restarting PM2..."
-pm2 restart command-central --update-env || pm2 start ecosystem.config.js
+pm2 delete command-central 2>/dev/null || true
+pm2 start ecosystem.config.js
 pm2 save
 
 echo "  Waiting for server to start..."
