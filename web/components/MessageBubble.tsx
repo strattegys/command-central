@@ -47,18 +47,17 @@ export default function MessageBubble({
   );
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
+    <div className="flex mb-1">
       <div
-        className="relative group flex items-start gap-1"
+        className="relative group flex items-start gap-1 w-full"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {isUser && replyButton}
         <div
-          className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 break-words overflow-hidden ${
+          className={`w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden ${
             isUser
-              ? "bg-[var(--accent-green)] text-white rounded-br-sm"
-              : "bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded-bl-sm"
+              ? "bg-[#1a3a2a] text-white"
+              : "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
           }`}
         >
           {replyTo && (
