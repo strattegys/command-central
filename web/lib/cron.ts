@@ -2,13 +2,14 @@ import { schedule, type ScheduledTask } from "node-cron";
 import { execFile } from "child_process";
 import { appendFileSync } from "fs";
 import { join } from "path";
+import { AGENT_REGISTRY } from "./agent-registry";
+import type { RoutineSpec, HeartbeatSpec } from "./agent-spec";
 
 /**
  * In-App Cron Scheduler
  *
- * Replaces Linux crontab entries with node-cron jobs managed inside the PM2 process.
- * Jobs are registered on server startup via instrumentation.ts.
- * Live status is exposed via /api/cron-status for the Inspector panel.
+ * Data-driven from the Agent Registry. Jobs are registered on server startup
+ * via instrumentation.ts. Live status is exposed via /api/cron-status.
  */
 
 const TOOL_SCRIPTS_PATH =
@@ -101,6 +102,71 @@ function registerJob(
   scheduledTasks.set(config.id, task);
 }
 
+// ─── Handler factories ───
+// Each routine handler string maps to a function that creates the async handler.
+
+type HandlerFactory = (routine: RoutineSpec, agentId: string) => () => Promise<void>;
+
+const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
+  "linkedin-extractor": () => async () => {
+    await execScript("python3", [
+      join(TOOL_SCRIPTS_PATH, "linkedin_extractor.py"),
+    ]);
+  },
+
+  "scheduled-messages-process": () => async () => {
+    await execScript("python3", [
+      join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"),
+      "process",
+    ]);
+  },
+
+  "crm-backup": () => async () => {
+    try {
+      await execScript("bash", ["/root/scripts/backup-twenty.sh"]);
+    } catch {
+      console.log("[cron] CRM backup script not found or failed");
+    }
+  },
+
+  "linkedin-connections": () => async () => {
+    const { checkNewConnections } = await import("./linkedin-crm");
+    const count = await checkNewConnections();
+    if (count > 0) {
+      console.log(`[cron] Processed ${count} new LinkedIn connection(s)`);
+    }
+  },
+};
+
+// ─── Heartbeat handler factory ───
+
+function createHeartbeatHandler(
+  heartbeat: HeartbeatSpec,
+  agentId: string
+): () => Promise<void> {
+  switch (heartbeat.type) {
+    case "full":
+      return async () => {
+        const { runTimHeartbeat } = await import("./heartbeat");
+        await runTimHeartbeat();
+      };
+    case "simple":
+      return async () => {
+        const { runSimpleHeartbeat } = await import("./heartbeat");
+        await runSimpleHeartbeat(agentId);
+      };
+    case "scout":
+      return async () => {
+        const { runScoutHeartbeat } = await import("./heartbeat");
+        await runScoutHeartbeat();
+      };
+    default:
+      return async () => {
+        console.warn(`[cron] Unknown heartbeat type for agent ${agentId}`);
+      };
+  }
+}
+
 /** Initialize all cron jobs. Called once from instrumentation.ts on server start. */
 export function initCronJobs(): void {
   if (initialized) return;
@@ -109,147 +175,48 @@ export function initCronJobs(): void {
 
   console.log("[cron] Initializing cron jobs...");
 
-  // Tim: LinkedIn Message Sync
-  registerJob(
-    {
-      id: "linkedin-sync",
-      name: "LinkedIn Message Sync",
-      schedule: "*/15 * * * *",
-      description: "Extracts new LinkedIn messages, creates CRM notes, sends alerts",
-      logFile: "/root/.nanobot/linkedin_alerts.log",
-      agentId: "tim",
-      enabled: true,
-    },
-    async () => {
-      await execScript("python3", [
-        join(TOOL_SCRIPTS_PATH, "linkedin_extractor.py"),
-      ]);
-    }
-  );
-
-  // Tim: Scheduled Message Processor
-  registerJob(
-    {
-      id: "scheduled-messages",
-      name: "Scheduled Message Processor",
-      schedule: "* * * * *",
-      description: "Sends due scheduled LinkedIn messages from the queue",
-      logFile: "/root/.nanobot/scheduled_messages.log",
-      agentId: "tim",
-      enabled: true,
-    },
-    async () => {
-      await execScript("python3", [
-        join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"),
-        "process",
-      ]);
-    }
-  );
-
-  // Tim: CRM Backup
-  registerJob(
-    {
-      id: "crm-backup",
-      name: "CRM Backup",
-      schedule: "0 2 * * *",
-      description: "Nightly backup of Twenty CRM database",
-      logFile: "/var/log/twenty-backup.log",
-      agentId: "tim",
-      enabled: true,
-    },
-    async () => {
-      // Twenty CRM backup via pg_dump (if script exists)
-      try {
-        await execScript("bash", ["/root/scripts/backup-twenty.sh"]);
-      } catch {
-        console.log("[cron] CRM backup script not found or failed");
+  for (const spec of Object.values(AGENT_REGISTRY)) {
+    // Register routines
+    for (const routine of spec.routines) {
+      const factory = ROUTINE_HANDLERS[routine.handler];
+      if (!factory) {
+        console.warn(
+          `[cron] Unknown handler "${routine.handler}" for routine "${routine.id}" (agent: ${spec.id})`
+        );
+        continue;
       }
-    }
-  );
 
-  // Heartbeat: Tim — full autonomous task checking
-  registerJob(
-    {
-      id: "heartbeat-tim",
-      name: "Heartbeat",
-      schedule: "*/30 * * * *",
-      description:
-        "Checks unactioned LinkedIn alerts, due reminders, failed scheduled messages, workflow health",
-      agentId: "tim",
-      enabled: true,
-    },
-    async () => {
-      const { runTimHeartbeat } = await import("./heartbeat");
-      await runTimHeartbeat();
+      registerJob(
+        {
+          id: routine.id,
+          name: routine.name,
+          schedule: routine.schedule,
+          description: routine.description,
+          logFile: routine.logFile,
+          agentId: spec.id,
+          enabled: routine.enabled !== false,
+        },
+        factory(routine, spec.id)
+      );
     }
-  );
 
-  // Heartbeat: Suzi — checks reminders every minute
-  registerJob(
-    {
-      id: "heartbeat-suzi",
-      name: "Heartbeat",
-      schedule: "* * * * *",
-      description: "Checks reminders and important tasks every minute",
-      agentId: "suzi",
-      enabled: true,
-    },
-    async () => {
-      const { runSimpleHeartbeat } = await import("./heartbeat");
-      await runSimpleHeartbeat("suzi");
+    // Register heartbeat
+    if (spec.heartbeat) {
+      registerJob(
+        {
+          id: `heartbeat-${spec.id}`,
+          name: "Heartbeat",
+          schedule: spec.heartbeat.schedule,
+          description: spec.heartbeat.checks
+            .map((c) => c.name)
+            .join(", "),
+          agentId: spec.id,
+          enabled: true,
+        },
+        createHeartbeatHandler(spec.heartbeat, spec.id)
+      );
     }
-  );
-
-  // Heartbeat: Rainbow
-  registerJob(
-    {
-      id: "heartbeat-rainbow",
-      name: "Heartbeat",
-      schedule: "*/30 * * * *",
-      description: "Periodic health check",
-      agentId: "rainbow",
-      enabled: true,
-    },
-    async () => {
-      const { runSimpleHeartbeat } = await import("./heartbeat");
-      await runSimpleHeartbeat("rainbow");
-    }
-  );
-
-  // Heartbeat: Scout — processes delegated tasks
-  registerJob(
-    {
-      id: "heartbeat-scout",
-      name: "Heartbeat",
-      schedule: "*/10 * * * *",
-      description: "Processes delegated research tasks from other agents",
-      agentId: "scout",
-      enabled: true,
-    },
-    async () => {
-      const { runScoutHeartbeat } = await import("./heartbeat");
-      await runScoutHeartbeat();
-    }
-  );
-
-  // Tim: LinkedIn New Connections Poller
-  registerJob(
-    {
-      id: "linkedin-connections",
-      name: "LinkedIn Connections Check",
-      schedule: "*/10 * * * *",
-      description: "Polls for new LinkedIn connections, enriches CRM contacts",
-      agentId: "tim",
-      enabled: true,
-    },
-    async () => {
-      const { checkNewConnections } = await import("./linkedin-crm");
-      const count = await checkNewConnections();
-      if (count > 0) {
-        console.log(`[cron] Processed ${count} new LinkedIn connection(s)`);
-      }
-    }
-  );
+  }
 
   console.log(`[cron] Registered ${jobRegistry.size} jobs`);
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import type { AgentConfig } from "@/app/chat/page";
-import { AGENT_CATEGORIES } from "@/app/chat/page";
+import type { AgentConfig } from "@/lib/agent-frontend";
+import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import NotificationBell from "./NotificationBell";
 
 interface AgentSidebarProps {

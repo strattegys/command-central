@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { AgentConfig } from "@/app/chat/page";
+import type { AgentConfig } from "@/lib/agent-frontend";
 
 
 interface Routine {

@@ -1,3 +1,12 @@
+/**
+ * Backend Agent Config — Thin adapter over the Agent Registry.
+ *
+ * Existing callers (gemini.ts, heartbeat.ts, API routes) continue to use
+ * getAgentConfig() and get the same AgentBackendConfig shape.
+ */
+
+import { AGENT_REGISTRY, getAgentSpec } from "./agent-registry";
+
 export interface Routine {
   name: string;
   schedule: string;
@@ -16,103 +25,26 @@ export interface AgentBackendConfig {
   routines: Routine[];
 }
 
-const AGENTS: Record<string, AgentBackendConfig> = {
-  tim: {
-    id: "tim",
-    hasKanban: true,
-    sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.nanobot/system-prompt.md",
-    memoryDir: "/root/.nanobot/memory",
-    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search", "memory", "delegate_task"],
-    routines: [
-      {
-        name: "LinkedIn Message Sync",
-        schedule: "*/15 * * * *",
-        description: "Extracts new LinkedIn messages, creates CRM notes, sends alerts",
-        logFile: "/root/.nanobot/linkedin_alerts.log",
-      },
-      {
-        name: "Scheduled Message Processor",
-        schedule: "* * * * *",
-        description: "Sends due scheduled LinkedIn messages from the queue",
-        logFile: "/root/.nanobot/scheduled_messages.log",
-      },
-      {
-        name: "CRM Backup",
-        schedule: "0 2 * * *",
-        description: "Nightly backup of Twenty CRM database",
-        logFile: "/var/log/twenty-backup.log",
-      },
-      {
-        name: "LinkedIn Connections Check",
-        schedule: "*/10 * * * *",
-        description: "Polls for new LinkedIn connections, enriches CRM contacts",
-      },
-    ],
-  },
-  suzi: {
-    id: "suzi",
-    sessionFile: "/root/.suzibot/workspace/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.suzibot/system-prompt.md",
-    memoryDir: "/root/.suzibot/memory",
-    tools: ["web_search", "memory"],
-    routines: [
-      {
-        name: "Heartbeat",
-        schedule: "* * * * *",
-        description: "Checks reminders and important tasks every minute",
-      },
-    ],
-  },
-  rainbow: {
-    id: "rainbow",
-    sessionFile: "/root/.avabot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.avabot/system-prompt.md",
-    memoryDir: "/root/.avabot/memory",
-    tools: ["web_search", "memory"],
-    routines: [],
-  },
-  scout: {
-    id: "scout",
-    sessionFile: "/root/.scoutbot/sessions/internal.jsonl",
-    systemPromptFile: "/root/.scoutbot/system-prompt.md",
-    memoryDir: "/root/.scoutbot/memory",
-    tools: ["web_search", "twenty_crm", "memory"],
-    routines: [],
-  },
-  friday: {
-    id: "friday",
-    modelName: "gemini-2.5-pro",
-    sessionFile: "/root/.fridaybot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.fridaybot/system-prompt.md",
-    memoryDir: "/root/.fridaybot/memory",
-    tools: ["agent_manager", "web_search", "memory", "delegate_task"],
-    routines: [],
-  },
-  ghost: {
-    id: "ghost",
-    modelName: "gemini-2.5-pro",
-    hasKanban: true,
-    sessionFile: "/root/.ghostbot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.ghostbot/system-prompt.md",
-    memoryDir: "/root/.ghostbot/memory",
-    tools: ["web_search", "kanban", "memory"],
-    routines: [],
-  },
-  marni: {
-    id: "marni",
-    sessionFile: "/root/.marnibot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.marnibot/system-prompt.md",
-    memoryDir: "/root/.marnibot/memory",
-    tools: ["web_search", "memory"],
-    routines: [],
-  },
-};
-
 export function getAgentConfig(agentId: string): AgentBackendConfig {
-  return AGENTS[agentId] || AGENTS.tim;
+  const spec = getAgentSpec(agentId);
+  return {
+    id: spec.id,
+    modelName: spec.modelName,
+    hasKanban: spec.workflowTypes.length > 0,
+    sessionFile: spec.sessionFile,
+    systemPromptFile: spec.systemPromptFile,
+    memoryDir: spec.memoryDir,
+    tools: spec.tools,
+    routines: spec.routines.map((r) => ({
+      name: r.name,
+      schedule: r.schedule,
+      description: r.description,
+      logFile: r.logFile,
+    })),
+  };
 }
 
 export function agentHasKanban(agentId: string): boolean {
-  return AGENTS[agentId]?.hasKanban ?? false;
+  const spec = AGENT_REGISTRY[agentId];
+  return spec ? spec.workflowTypes.length > 0 : false;
 }
