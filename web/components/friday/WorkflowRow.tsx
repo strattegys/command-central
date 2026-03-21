@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import { AGENT_REGISTRY } from "@/lib/agent-registry";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
@@ -42,9 +43,25 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
   const boardLabel = workflow.boardName;
   const owner = resolveOwner(workflow.ownerAgent);
   const stages = workflow.boardStages || [];
+  const [showSpec, setShowSpec] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!showSpec) return;
+    const handler = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setShowSpec(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showSpec]);
 
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2">
+    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 cursor-pointer hover:border-[var(--text-tertiary)] transition-colors relative"
+      onClick={() => setShowSpec(true)}
+    >
       {/* Name + alert badge */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-[var(--text-primary)] truncate flex-1">
@@ -115,6 +132,98 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
       {workflow.totalItems > 0 && (
         <div className="text-[9px] text-[var(--text-tertiary)]">
           {workflow.totalItems} item{workflow.totalItems !== 1 ? "s" : ""}
+        </div>
+      )}
+
+      {/* Spec popup */}
+      {showSpec && (
+        <div
+          ref={popupRef}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-[600px] max-w-[90vw] max-h-[80vh] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)] shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)] truncate">{workflow.name}</h2>
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium shrink-0"
+                  style={{ backgroundColor: ITEM_TYPE_COLORS[workflow.itemType] || "#555" }}
+                >
+                  {ITEM_TYPE_LABELS[workflow.itemType] || workflow.itemType}
+                </span>
+                {owner && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <div
+                      className="w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{ backgroundColor: owner.color }}
+                    >
+                      <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
+                    </div>
+                    <span className="text-[10px] text-[var(--text-secondary)]">{owner.name}</span>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowSpec(false); }}
+                className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Stage pipeline */}
+            {stages.length > 0 && (
+              <div className="px-4 py-2.5 border-b border-[var(--border-color)] shrink-0">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {stages.map((s, i) => {
+                    const count = workflow.stageCounts[s.key] || 0;
+                    return (
+                      <div key={s.key} className="flex items-center gap-1">
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium inline-flex items-center gap-1"
+                          style={{ backgroundColor: s.color }}
+                        >
+                          {s.label}
+                          {count > 0 && (
+                            <span className="bg-white/25 text-[9px] px-1 rounded-full font-bold">{count}</span>
+                          )}
+                        </span>
+                        {i < stages.length - 1 && (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {workflow.totalItems > 0 && (
+                    <span className="text-[10px] text-[var(--text-tertiary)] ml-1">{workflow.totalItems} total</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Spec content */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
+              <label className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold mb-2 block">
+                Workflow Spec
+              </label>
+              {workflow.spec ? (
+                <div className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
+                  {workflow.spec}
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--text-tertiary)] italic">
+                  No spec defined for this workflow.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
