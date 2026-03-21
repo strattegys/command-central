@@ -7,6 +7,11 @@ function getUploadsDir() {
   return process.env.AVATAR_DIR || path.join(process.cwd(), "uploads", "avatars");
 }
 
+// Resolve public dir — works in both dev and standalone builds
+function getPublicDir() {
+  return path.join(process.cwd(), "public");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -61,21 +66,26 @@ export async function GET(req: NextRequest) {
     }
 
     const uploadsDir = getUploadsDir();
+    const publicDir = getPublicDir();
 
-    // Try png first, then svg
-    for (const ext of ["png", "svg"]) {
-      const filePath = path.join(uploadsDir, `${safeId}-avatar.${ext}`);
-      try {
-        const data = await readFile(filePath);
-        const contentType = ext === "svg" ? "image/svg+xml" : "image/png";
-        return new NextResponse(data, {
-          headers: {
-            "Content-Type": contentType,
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        });
-      } catch {
-        // file doesn't exist, try next ext
+    // Search order: uploads first (user-uploaded), then public (built-in defaults)
+    const searchDirs = [uploadsDir, publicDir];
+
+    for (const dir of searchDirs) {
+      for (const ext of ["png", "svg"]) {
+        const filePath = path.join(dir, `${safeId}-avatar.${ext}`);
+        try {
+          const data = await readFile(filePath);
+          const contentType = ext === "svg" ? "image/svg+xml" : "image/png";
+          return new NextResponse(data, {
+            headers: {
+              "Content-Type": contentType,
+              "Cache-Control": "public, max-age=86400, must-revalidate",
+            },
+          });
+        } catch {
+          // file doesn't exist, try next
+        }
       }
     }
 

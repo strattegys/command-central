@@ -117,21 +117,8 @@ function ChatPage() {
     }
   }, [activeAgent, handleAvatarChange]);
 
-  // On mount, check for custom uploaded avatars (cache-bust to avoid stale 200s)
-  useEffect(() => {
-    AGENTS.forEach((a) => {
-      fetch(`/api/agent-avatar?id=${a.id}&_=${Date.now()}`, { method: "HEAD", cache: "no-store" })
-        .then((res) => {
-          if (res.ok) {
-            setAvatarOverrides((prev) => ({
-              ...prev,
-              [a.id]: `/api/agent-avatar?id=${a.id}&v=${Date.now()}`,
-            }));
-          }
-        })
-        .catch(() => {});
-    });
-  }, []);
+  // Avatars now always use /api/agent-avatar route (checks uploads then public).
+  // No HEAD-request discovery needed — the API is the single source of truth.
 
   const agent = agents.find((a) => a.id === activeAgent) || agents[0];
 
@@ -455,7 +442,11 @@ function ChatPage() {
                           className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
                           style={{ background: a.color }}
                         >
-                          <span className="text-base font-medium text-white">{a.name[0]}</span>
+                          {a.avatar ? (
+                            <img src={a.avatar} alt={a.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-base font-medium text-white">{a.name[0]}</span>
+                          )}
                         </div>
                         <span
                           className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
@@ -501,7 +492,11 @@ function ChatPage() {
             className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shrink-0"
             style={{ background: agent.color }}
           >
-            <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+            {agent.avatar ? (
+              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{agent.name}</div>
