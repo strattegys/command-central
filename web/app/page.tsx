@@ -31,11 +31,19 @@ function ChatPage() {
   const paramAgent = searchParams.get("agent");
   const paramPanel = searchParams.get("panel");
 
+  // Each agent's default panel when selected
+  function defaultPanelFor(agentId: string): "info" | "kanban" | "dashboard" | "reminders" {
+    if (agentId === "friday") return "dashboard";
+    if (agentId === "suzi") return "reminders";
+    if (agentHasKanban(agentId)) return "kanban";
+    return "info";
+  }
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState(paramAgent || "suzi");
   const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "dashboard" | "reminders">(
-    (paramPanel as "info" | "kanban" | "dashboard" | "reminders") || "reminders"
+    (paramPanel as "info" | "kanban" | "dashboard" | "reminders") || defaultPanelFor(paramAgent || "suzi")
   );
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
@@ -416,7 +424,7 @@ function ChatPage() {
                           loadedAgentRef.current = null;
                           setReplyTo(null);
                           setActiveAgent(a.id);
-                          setRightPanel("info");
+                          setRightPanel(defaultPanelFor(a.id));
                         }
                         setMobileShowChat(true);
                       }}
@@ -522,7 +530,7 @@ function ChatPage() {
               loadedAgentRef.current = null;
               setReplyTo(null);
               setActiveAgent(id);
-              setRightPanel("info");
+              setRightPanel(defaultPanelFor(id));
             }
           }}
         />
