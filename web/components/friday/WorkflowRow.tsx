@@ -60,30 +60,37 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         )}
       </div>
 
-      {/* Template + item type + agents */}
+      {/* Item type + template */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {template && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
-            {template.label}
-          </span>
-        )}
         <span
           className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
           style={{ backgroundColor: ITEM_TYPE_COLORS[workflow.itemType] || "#555" }}
         >
           {ITEM_TYPE_LABELS[workflow.itemType] || workflow.itemType}
         </span>
-        {owners.map((owner) => (
-          <div
-            key={owner.name}
-            className="w-4 h-4 rounded-full flex items-center justify-center ml-auto shrink-0"
-            style={{ backgroundColor: owner.color }}
-            title={owner.name}
-          >
-            <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
-          </div>
-        ))}
+        {template && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
+            {template.label}
+          </span>
+        )}
       </div>
+
+      {/* Assigned agents */}
+      {owners.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          {owners.map((owner) => (
+            <div key={owner.name} className="flex items-center gap-1">
+              <div
+                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                style={{ backgroundColor: owner.color }}
+              >
+                <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
+              </div>
+              <span className="text-[9px] text-[var(--text-secondary)]">{owner.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stage pipeline bubbles (shown when workflow is active) */}
       {stages.length > 0 && (
