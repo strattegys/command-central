@@ -84,17 +84,17 @@ export default function AgentSidebar({
                         className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center overflow-hidden"
                         style={{ background: agent.color }}
                       >
-                        {agent.avatar ? (
+                        {agent.avatar && (
                           <img
                             src={agent.avatar}
                             alt={agent.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover absolute inset-0"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
-                        ) : (
-                          <span className="text-sm font-medium text-white">
-                            {agent.name[0]}
-                          </span>
                         )}
+                        <span className="text-sm font-medium text-white">
+                          {agent.name[0]}
+                        </span>
                       </div>
                       {unread > 0 && (
                         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-orange)] text-white text-[10px] font-bold flex items-center justify-center px-1">

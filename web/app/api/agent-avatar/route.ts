@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 
-// Resolve uploads dir at request time, not module load time
+// Resolve uploads dir at request time, not module load time.
+// Default to /root/.agent-avatars which persists across deploys.
 function getUploadsDir() {
-  return process.env.AVATAR_DIR || path.join(process.cwd(), "uploads", "avatars");
+  return process.env.AVATAR_DIR || "/root/.agent-avatars";
 }
 
 // Resolve public dir — works in both dev and standalone builds
