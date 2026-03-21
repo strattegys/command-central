@@ -3,16 +3,9 @@ import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { getAgentSpec } from "@/lib/agent-registry";
 
-// Resolve uploads dir at request time, not module load time.
-// Default to /root/.agent-avatars which persists across deploys.
-function getUploadsDir() {
-  return process.env.AVATAR_DIR || "/root/.agent-avatars";
-}
-
-// Resolve public dir — works in both dev and standalone builds
-function getPublicDir() {
-  return path.join(process.cwd(), "public");
-}
+// Single persistent directory for all agent avatars.
+// Lives outside the project so deploys never wipe it.
+const AVATAR_DIR = process.env.AVATAR_DIR || "/root/.agent-avatars";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,12 +30,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });
     }
 
-    const uploadsDir = getUploadsDir();
-    await mkdir(uploadsDir, { recursive: true });
+    await mkdir(AVATAR_DIR, { recursive: true });
 
     const ext = file.type === "image/svg+xml" ? "svg" : "png";
     const filename = `${safeId}-avatar.${ext}`;
-    const filePath = path.join(uploadsDir, filename);
+    const filePath = path.join(AVATAR_DIR, filename);
 
     const bytes = await file.arrayBuffer();
     await writeFile(filePath, Buffer.from(bytes));
@@ -67,11 +59,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
-    const uploadsDir = getUploadsDir();
-    const publicDir = getPublicDir();
-
-    // Search order: uploads first (user-uploaded), then public (built-in defaults)
-    const searchDirs = [uploadsDir, publicDir];
+    // Check the one persistent avatar directory, then fall back to public/
+    const searchDirs = [AVATAR_DIR, path.join(process.cwd(), "public")];
 
     for (const dir of searchDirs) {
       for (const ext of ["png", "svg"]) {
@@ -82,7 +71,7 @@ export async function GET(req: NextRequest) {
           return new NextResponse(data, {
             headers: {
               "Content-Type": contentType,
-              "Cache-Control": "public, max-age=86400, must-revalidate",
+              "Cache-Control": "no-cache",
             },
           });
         } catch {
@@ -91,7 +80,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // No file found — generate an SVG with the agent's initial and color
+    // No file found — return SVG with agent's initial + color
     const spec = getAgentSpec(safeId);
     const color = spec.color || "#555";
     const initial = spec.name?.[0] || safeId[0]?.toUpperCase() || "?";
@@ -102,7 +91,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(svg, {
       headers: {
         "Content-Type": "image/svg+xml",
-        "Cache-Control": "public, max-age=3600, must-revalidate",
+        "Cache-Control": "no-cache",
       },
     });
   } catch {

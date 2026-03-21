@@ -389,7 +389,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Handles pricing, invoicing, and financial tracking. " +
       "Currently a placeholder — tools and capabilities coming soon.",
     category: "FinOps",
-    color: "#2C2C2C",
+    color: "#FFFFFF",
     avatar: "/api/agent-avatar?id=king",
     sessionFile: "/root/.kingbot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.kingbot/system-prompt.md",
