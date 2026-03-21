@@ -126,13 +126,9 @@ AFTER_LOCK=$(md5sum web/package-lock.json 2>/dev/null | cut -d' ' -f1)
 
 cd web
 
-# Smart npm ci — only if lockfile changed
-if [ "$BEFORE_LOCK" != "$AFTER_LOCK" ]; then
-  echo "  package-lock.json changed — running npm ci..."
-  npm ci
-else
-  echo "  Dependencies unchanged — skipping npm ci"
-fi
+# Always run npm ci — git reset --hard can corrupt node_modules
+echo "  Installing dependencies..."
+npm ci
 
 # Clear stale build lock if present
 rm -f .next/lock

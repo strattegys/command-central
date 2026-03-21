@@ -152,10 +152,10 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   friday: {
     id: "friday",
     name: "Friday",
-    role: "Agent Architect",
+    role: "Right Hand Robot",
     description:
-      "Meta-agent that creates and manages other agents. Can read/update system prompts, " +
-      "restart services, check agent status, and delegate tasks.",
+      "Your right hand robot — manages agents, workflows, and system operations. " +
+      "Can read/update system prompts, restart services, check status, and delegate tasks.",
     category: "Utility",
     color: "#9B59B6",
     modelName: "gemini-2.5-pro",
