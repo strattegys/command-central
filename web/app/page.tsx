@@ -15,6 +15,7 @@ import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
 import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
+import { TtsQueue } from "@/lib/tts-queue";
 import Link from "next/link";
 
 
@@ -300,6 +301,9 @@ function ChatPage() {
         const decoder = new TextDecoder();
         let buffer = "";
 
+        // Start TTS queue if agent has a voice — sentences stream to TTS as they arrive
+        const ttsQueue = agent.ttsVoice ? new TtsQueue(agent.ttsVoice) : null;
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -344,6 +348,7 @@ function ChatPage() {
                       msg.id === botMsgId ? { ...msg, text: msg.text + displayText } : msg
                     )
                   );
+                  ttsQueue?.push(displayText);
                 }
               }
             } catch {
@@ -351,6 +356,9 @@ function ChatPage() {
             }
           }
         }
+
+        // Flush any remaining TTS text
+        ttsQueue?.flush();
 
         // Play notification chime — skip if agent has TTS voice (avoid overlap)
         if (!agent.ttsVoice) {
@@ -513,7 +521,6 @@ function ChatPage() {
           agentName={agent.name}
           agentColor={agent.color}
           onReply={handleReply}
-          ttsVoice={agent.ttsVoice}
         />
 
         <ChatInput
@@ -629,7 +636,6 @@ function ChatPage() {
           agentName={agent.name}
           agentColor={agent.color}
           onReply={handleReply}
-          ttsVoice={agent.ttsVoice}
         />
 
         <ChatInput

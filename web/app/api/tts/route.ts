@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { textToSpeech, isLongReply, summarizeForVoice } from "@/lib/tts";
+import { textToSpeech } from "@/lib/tts";
 
 export async function POST(request: Request) {
   // Auth check - allow unauthenticated for now (no Google OAuth configured)
@@ -18,21 +18,11 @@ export async function POST(request: Request) {
       );
     }
 
-    let spokenText = text;
-    let summarized = false;
-
-    if (isLongReply(text)) {
-      spokenText = await summarizeForVoice(text);
-      summarized = true;
-    }
-
-    const wavBuffer = await textToSpeech(spokenText, voice);
+    const wavBuffer = await textToSpeech(text, voice);
 
     return new NextResponse(new Uint8Array(wavBuffer), {
       headers: {
         "Content-Type": "audio/wav",
-        "X-Summarized": summarized ? "true" : "false",
-        "X-Spoken-Text": encodeURIComponent(spokenText),
       },
     });
   } catch (error: unknown) {
