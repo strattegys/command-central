@@ -8,110 +8,14 @@ import AgentInfoPanel from "@/components/AgentInfoPanel";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
+import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import Link from "next/link";
 
-export interface AgentConfig {
-  id: string;
-  name: string;
-  role: string;
-  color: string;
-  avatar?: string;
-  online: boolean;
-  capabilities: string[];
-  connections: { label: string; connected: boolean }[];
-  category: "Utility" | "MarkOps" | "ContentOps" | "Toys";
-}
+// Re-export for components that import from this file
+export type { AgentConfig };
+export { AGENT_CATEGORIES };
 
-export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "Toys"] as const;
-
-const AGENTS: AgentConfig[] = [
-  {
-    id: "suzi",
-    name: "Suzi",
-    role: "Personal Assistant",
-    color: "#D85A30",
-    avatar: "/suzi-avatar.png",
-    online: true,
-    capabilities: ["Web search", "Summaries", "Relay messages", "Message Susan"],
-    connections: [{ label: "Web search", connected: true }],
-    category: "Utility",
-  },
-  {
-    id: "friday",
-    name: "Friday",
-    role: "Agent Architect",
-    color: "#9B59B6",
-    online: true,
-    capabilities: ["Build agents", "Manage prompts", "Agent status", "Restart services"],
-    connections: [
-      { label: "Agent Manager", connected: true },
-      { label: "Web search", connected: true },
-      { label: "Slack", connected: true },
-    ],
-    category: "Utility",
-  },
-  {
-    id: "tim",
-    name: "Tim",
-    role: "Marketing & Sales Assistant",
-    color: "#1D9E75",
-    avatar: "/tim-avatar.png?v=2",
-    online: true,
-    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Workflows"],
-    connections: [
-      { label: "CRM", connected: true },
-      { label: "LinkedIn", connected: true },
-      { label: "Web search", connected: true },
-    ],
-    category: "MarkOps",
-  },
-  {
-    id: "scout",
-    name: "Scout",
-    role: "Intelligence & Research",
-    color: "#2563EB",
-    avatar: "/scout-avatar.svg",
-    online: true,
-    capabilities: ["Web research", "Company intel", "Contact discovery", "Market analysis"],
-    connections: [
-      { label: "Web search", connected: true },
-      { label: "CRM", connected: true },
-    ],
-    category: "MarkOps",
-  },
-  {
-    id: "ghost",
-    name: "Ghost",
-    role: "ContentOps",
-    color: "#4A90D9",
-    online: true,
-    capabilities: ["Blog posts", "Copywriting", "Social content", "Content strategy"],
-    connections: [{ label: "Web search", connected: true }],
-    category: "ContentOps",
-  },
-  {
-    id: "marni",
-    name: "Marni",
-    role: "Content Distribution",
-    color: "#D4A017",
-    avatar: "/marni-avatar.png",
-    online: true,
-    capabilities: ["Content distribution", "Post execution", "Engagement & commenting"],
-    connections: [{ label: "LinkedIn", connected: false }],
-    category: "ContentOps",
-  },
-  {
-    id: "rainbow",
-    name: "Rainbow",
-    role: "Abby's Magical AI Friend",
-    color: "#534AB7",
-    avatar: "/rainbow-avatar.png",
-    online: true,
-    capabilities: ["Stories", "Learning", "Games", "Creativity"],
-    connections: [{ label: "Web search", connected: true }],
-    category: "Toys",
-  },
-];
+const AGENTS: AgentConfig[] = getFrontendAgents();
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -124,7 +28,15 @@ export default function ChatPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-  const [lastSeenCounts, setLastSeenCounts] = useState<Record<string, number>>({});
+  const [lastSeenCounts, setLastSeenCounts] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("chat_last_seen_counts");
+        return stored ? JSON.parse(stored) : {};
+      } catch { return {}; }
+    }
+    return {};
+  });
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const loadedAgentRef = useRef<string | null>(null);
@@ -206,7 +118,11 @@ export default function ChatPage() {
   // Clear unread count when switching to an agent
   useEffect(() => {
     setUnreadCounts((prev) => ({ ...prev, [activeAgent]: 0 }));
-    setLastSeenCounts((prev) => ({ ...prev, [activeAgent]: messages.length }));
+    setLastSeenCounts((prev) => {
+      const updated = { ...prev, [activeAgent]: messages.length };
+      try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
   }, [activeAgent, messages.length]);
 
   // Poll for new messages from other agents (every 30s)
@@ -219,15 +135,26 @@ export default function ChatPage() {
           .then((data) => {
             if (data.history && data.history.length > 0) {
               const total = data.history.length;
-              const lastSeen = lastSeenCounts[a.id] || 0;
-              const newMessages = Math.max(0, total - lastSeen);
-              if (newMessages > 0) {
-                setUnreadCounts((prev) => ({
-                  ...prev,
-                  [a.id]: (prev[a.id] || 0) + newMessages,
-                }));
-                setLastSeenCounts((prev) => ({ ...prev, [a.id]: total }));
-              }
+              setLastSeenCounts((prev) => {
+                const lastSeen = prev[a.id] || 0;
+                if (lastSeen === 0) {
+                  // First poll — initialize without marking unread
+                  const updated = { ...prev, [a.id]: total };
+                  try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
+                  return updated;
+                }
+                const newMessages = Math.max(0, total - lastSeen);
+                if (newMessages > 0) {
+                  setUnreadCounts((uPrev) => ({
+                    ...uPrev,
+                    [a.id]: newMessages,
+                  }));
+                  const updated = { ...prev, [a.id]: total };
+                  try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
+                  return updated;
+                }
+                return prev;
+              });
               const lastMsg = data.history[data.history.length - 1];
               setLastMessages((prev) => ({ ...prev, [a.id]: lastMsg.text }));
             }
@@ -236,17 +163,25 @@ export default function ChatPage() {
       });
     }, 30000);
     return () => clearInterval(interval);
-  }, [activeAgent, lastSeenCounts]);
+  }, [activeAgent]);
 
-  // Load last messages for all agents on mount (for mobile list)
+  // Load last messages for all agents on mount + initialize lastSeenCounts
   useEffect(() => {
     AGENTS.forEach((a) => {
       fetch(`/api/chat?agent=${a.id}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.history && data.history.length > 0) {
+            const total = data.history.length;
             const lastMsg = data.history[data.history.length - 1];
             setLastMessages((prev) => ({ ...prev, [a.id]: lastMsg.text }));
+            // Initialize lastSeen if not already set (prevents false unreads on first poll)
+            setLastSeenCounts((prev) => {
+              if (prev[a.id]) return prev; // already set from localStorage
+              const updated = { ...prev, [a.id]: total };
+              try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
+              return updated;
+            });
           }
         })
         .catch(() => {});
