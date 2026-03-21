@@ -1,4 +1,4 @@
-const CACHE_NAME = 'command-central-v1';
+const CACHE_NAME = 'command-central-v2';
 const STATIC_ASSETS = [
   '/chat',
   '/icons/icon-192.png',
