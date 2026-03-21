@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
+import { getAgentSpec } from "@/lib/agent-registry";
 
 // Resolve uploads dir at request time, not module load time.
 // Default to /root/.agent-avatars which persists across deploys.
@@ -90,7 +91,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // No file found — generate an SVG with the agent's initial and color
+    const spec = getAgentSpec(safeId);
+    const color = spec.color || "#555";
+    const initial = spec.name?.[0] || safeId[0]?.toUpperCase() || "?";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+      <circle cx="64" cy="64" r="64" fill="${color}"/>
+      <text x="64" y="64" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="56" font-weight="600" fill="white">${initial}</text>
+    </svg>`;
+    return new NextResponse(svg, {
+      headers: {
+        "Content-Type": "image/svg+xml",
+        "Cache-Control": "public, max-age=3600, must-revalidate",
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Failed to serve avatar" }, { status: 500 });
   }
