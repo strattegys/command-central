@@ -69,7 +69,7 @@ export async function textToSpeech(text: string, voice?: string): Promise<Buffer
   const ai = getClient();
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-tts",
+    model: "gemini-2.5-flash-preview-tts",
     contents: [
       {
         role: "user",
