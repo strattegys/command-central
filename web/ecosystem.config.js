@@ -2,7 +2,8 @@ module.exports = {
   apps: [
     {
       name: "command-central",
-      script: ".next/standalone/server.js",
+      script: "./start.sh",
+      interpreter: "/bin/bash",
       cwd: __dirname,
       env: {
         NODE_ENV: "production",
