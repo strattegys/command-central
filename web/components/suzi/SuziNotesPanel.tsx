@@ -6,9 +6,10 @@ import { panelBus } from "@/lib/events";
 
 interface SuziNotesPanelProps {
   onClose: () => void;
+  embedded?: boolean;
 }
 
-export default function SuziNotesPanel({ onClose }: SuziNotesPanelProps) {
+export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesPanelProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
@@ -78,17 +79,19 @@ export default function SuziNotesPanel({ onClose }: SuziNotesPanelProps) {
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">
-          Notes
-        </span>
-        <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {loading
-            ? "Loading..."
-            : `${notes.length} note${notes.length !== 1 ? "s" : ""}${pinnedCount > 0 ? ` (${pinnedCount} pinned)` : ""}`}
-        </span>
-      </div>
+      {/* Header (hidden when embedded in sub-tab view) */}
+      {!embedded && (
+        <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+          <span className="text-xs font-semibold text-[var(--text-primary)]">
+            Notes
+          </span>
+          <span className="ml-auto text-xs text-[var(--text-tertiary)]">
+            {loading
+              ? "Loading..."
+              : `${notes.length} note${notes.length !== 1 ? "s" : ""}${pinnedCount > 0 ? ` (${pinnedCount} pinned)` : ""}`}
+          </span>
+        </div>
+      )}
 
       {/* Search */}
       <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)]">

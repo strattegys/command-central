@@ -2,6 +2,7 @@
 
 export interface Note {
   id: string;
+  noteNumber: number;
   agentId: string;
   title: string;
   content: string | null;
@@ -36,8 +37,9 @@ export default function NoteCard({ note }: NoteCardProps) {
         )}
 
         <div className="flex-1 min-w-0">
-          {/* Title */}
+          {/* Title with note number */}
           <span className="text-xs font-semibold text-[var(--text-primary)]">
+            <span className="text-[var(--text-tertiary)] font-mono mr-1">#{note.noteNumber}</span>
             {note.title}
           </span>
 

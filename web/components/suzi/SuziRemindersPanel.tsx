@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
+import SuziNotesPanel from "./SuziNotesPanel";
 import { panelBus } from "@/lib/events";
 
-type SubTab = "reminders" | "punchlist";
+type SubTab = "reminders" | "punchlist" | "notes";
 
 const FILTERS = [
   "All",
@@ -13,7 +14,7 @@ const FILTERS = [
   "Holidays",
   "Recurring",
   "One-Time",
-  "Facts",
+  "Notes",
 ] as const;
 type Filter = (typeof FILTERS)[number];
 
@@ -26,7 +27,7 @@ const FILTER_TO_CATEGORY: Record<string, string | undefined> = {
   Holidays: "holiday",
   Recurring: "recurring",
   "One-Time": "one-time",
-  Facts: "fact",
+  Notes: "note",
 };
 
 /** Get "today" in Pacific time as a local Date at midnight */
@@ -66,7 +67,7 @@ export default function SuziRemindersPanel({
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_panel_subtab");
-      if (saved === "punchlist") return "punchlist";
+      if (saved === "punchlist" || saved === "notes") return saved as SubTab;
     }
     return "reminders";
   });
@@ -196,26 +197,44 @@ export default function SuziRemindersPanel({
     }
   }
 
+  // Helper to render the 3-tab header
+  const renderSubTabHeader = () => (
+    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
+      {(["reminders", "punchlist", "notes"] as SubTab[]).map((tab, i) => {
+        const label = tab === "punchlist" ? "Punch List" : tab === "notes" ? "Notes" : "Reminders";
+        const isActive = subTab === tab;
+        return (
+          <span key={tab} className="contents">
+            {i > 0 && <span className="text-[var(--text-tertiary)] text-[10px]">/</span>}
+            <button
+              onClick={() => setSubTab(tab)}
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+                isActive
+                  ? "font-semibold text-[var(--text-primary)]"
+                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              {label}
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+
+  if (subTab === "notes") {
+    return (
+      <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+        {renderSubTabHeader()}
+        <SuziNotesPanel onClose={onClose} embedded />
+      </div>
+    );
+  }
+
   if (subTab === "punchlist") {
     return (
       <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-        {/* Subtab header */}
-        <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-          <button
-            onClick={() => setSubTab("reminders")}
-            className="text-xs font-medium px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          >
-            Reminders
-          </button>
-          <span className="text-[var(--text-tertiary)] text-[10px]">/</span>
-          <button
-            onClick={() => setSubTab("punchlist")}
-            className="text-xs font-semibold px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-primary)]"
-          >
-            Punch List
-          </button>
-        </div>
-        {/* Punch list content (without its own header) */}
+        {renderSubTabHeader()}
         <SuziPunchListPanel onClose={onClose} embedded />
       </div>
     );
@@ -223,25 +242,7 @@ export default function SuziRemindersPanel({
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Subtab header */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-        <button
-          onClick={() => setSubTab("reminders")}
-          className="text-xs font-semibold px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-primary)]"
-        >
-          Reminders
-        </button>
-        <span className="text-[var(--text-tertiary)] text-[10px]">/</span>
-        <button
-          onClick={() => setSubTab("punchlist")}
-          className="text-xs font-medium px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-        >
-          Punch List
-        </button>
-        <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {loading ? "Loading..." : `${sorted.length} items`}
-        </span>
-      </div>
+      {renderSubTabHeader()}
 
       {/* Search */}
       <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)]">

@@ -1,4 +1,4 @@
-import { listNotes, addNote, updateNote, deleteNote } from "../notes";
+import { listNotes, addNote, updateNote, deleteNote, findByNoteNumber } from "../notes";
 import type { ToolModule } from "./types";
 
 const tool: ToolModule = {
@@ -15,7 +15,7 @@ const tool: ToolModule = {
   declaration: {
     name: "notes",
     description:
-      "Manage reference notes for the user. These are user-facing notes that Govind can browse and search — NOT your internal memory. Use for storing reference info like preferences, facts about people, passwords, lists, etc. Commands: 'list' (all notes, optional tag filter), 'add' (create new note), 'update' (modify existing), 'delete' (remove), 'search' (find by keyword). ALWAYS use this tool — never pretend to add notes without calling it.",
+      "Manage reference notes for the user. These are user-facing notes that Govind can browse and search — NOT your internal memory. Each note has a persistent numeric ID (e.g. #5001, #5002). Commands: 'list' (all notes, optional tag filter), 'add' (create new note), 'update' (modify by note_number), 'delete' (remove by note_number), 'search' (find by keyword). ALWAYS use this tool — never pretend to add notes without calling it.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -36,9 +36,13 @@ const tool: ToolModule = {
           description:
             "Optional tag for categorization (e.g. 'personal', 'work', 'reference', 'people')",
         },
+        note_number: {
+          type: "string",
+          description: "Persistent note number like 5001, 5002 (for update/delete)",
+        },
         id: {
           type: "string",
-          description: "Note UUID (for update/delete)",
+          description: "Note UUID (for update/delete — use note_number instead when possible)",
         },
         query: {
           type: "string",
@@ -56,13 +60,24 @@ const tool: ToolModule = {
   async execute(args, { agentId }) {
     const cmd = args.command;
 
+    // Resolve note_number to UUID
+    let resolvedId = args.id;
+    if (args.note_number && !resolvedId) {
+      const num = parseInt(args.note_number);
+      if (!isNaN(num)) {
+        const note = await findByNoteNumber(num);
+        if (!note) return `Error: Note #${args.note_number} not found.`;
+        resolvedId = note.id;
+      }
+    }
+
     if (cmd === "list") {
       const notes = await listNotes(agentId, { tag: args.tag });
       if (notes.length === 0) return "No notes found.";
       return notes
         .map(
           (n) =>
-            `${n.pinned ? "📌 " : ""}[${n.id.slice(0, 8)}] ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
+            `${n.pinned ? "📌 " : ""}#${n.noteNumber} ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
         )
         .join("\n");
     }
@@ -75,24 +90,24 @@ const tool: ToolModule = {
         tag: args.tag,
         pinned: args.pinned === "true",
       });
-      return `Note added: "${note.title}" (id: ${note.id.slice(0, 8)})${note.tag ? ` #${note.tag}` : ""}`;
+      return `Note added: #${note.noteNumber} "${note.title}"${note.tag ? ` #${note.tag}` : ""}`;
     }
 
     if (cmd === "update") {
-      if (!args.id) return "Error: id is required for update";
-      await updateNote(args.id, {
+      if (!resolvedId) return "Error: note_number or id is required for update";
+      await updateNote(resolvedId, {
         title: args.title,
         content: args.content,
         tag: args.tag,
         pinned: args.pinned === "true" ? true : args.pinned === "false" ? false : undefined,
       });
-      return `Note updated.`;
+      return `Note #${args.note_number || ""} updated.`;
     }
 
     if (cmd === "delete") {
-      if (!args.id) return "Error: id is required for delete";
-      await deleteNote(args.id);
-      return "Note deleted.";
+      if (!resolvedId) return "Error: note_number or id is required for delete";
+      await deleteNote(resolvedId);
+      return `Note #${args.note_number || ""} deleted.`;
     }
 
     if (cmd === "search") {
@@ -103,7 +118,7 @@ const tool: ToolModule = {
       return notes
         .map(
           (n) =>
-            `${n.pinned ? "📌 " : ""}[${n.id.slice(0, 8)}] ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
+            `${n.pinned ? "📌 " : ""}#${n.noteNumber} ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
         )
         .join("\n");
     }

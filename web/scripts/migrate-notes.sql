@@ -3,8 +3,12 @@
 
 SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
 
+-- Sequential note numbers (starting at 5001 to avoid overlap with punch list)
+CREATE SEQUENCE IF NOT EXISTS note_number_seq START WITH 5001;
+
 CREATE TABLE IF NOT EXISTS "_note" (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "noteNumber" INTEGER UNIQUE DEFAULT nextval('note_number_seq'),
   "agentId" TEXT NOT NULL,
   title TEXT NOT NULL,
   content TEXT,

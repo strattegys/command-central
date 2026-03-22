@@ -2,6 +2,7 @@ import { query } from "./db";
 
 export interface Note {
   id: string;
+  noteNumber: number;
   agentId: string;
   title: string;
   content: string | null;
@@ -92,6 +93,14 @@ export async function updateNote(
   );
 }
 
+export async function findByNoteNumber(noteNumber: number): Promise<Note | null> {
+  const rows = await query<Record<string, unknown>>(
+    `SELECT * FROM "_note" WHERE "noteNumber" = $1 AND "deletedAt" IS NULL LIMIT 1`,
+    [noteNumber]
+  );
+  return rows.length > 0 ? rowToNote(rows[0]) : null;
+}
+
 export async function deleteNote(id: string): Promise<void> {
   await query(
     `UPDATE "_note" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = $1`,
@@ -112,6 +121,7 @@ export async function listTags(agentId: string): Promise<string[]> {
 function rowToNote(row: Record<string, unknown>): Note {
   return {
     id: row.id as string,
+    noteNumber: row.noteNumber as number,
     agentId: row.agentId as string,
     title: row.title as string,
     content: (row.content as string) || null,
