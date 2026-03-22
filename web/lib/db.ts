@@ -17,7 +17,7 @@ export async function query<T extends Record<string, unknown> = Record<string, u
 ): Promise<T[]> {
   const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO "${SCHEMA}"`);
+    await client.query(`SET search_path TO "${SCHEMA}", public`);
     const result = await client.query(sql, params);
     return result.rows as T[];
   } finally {
@@ -31,7 +31,7 @@ export async function transaction<T>(
 ): Promise<T> {
   const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO "${SCHEMA}"`);
+    await client.query(`SET search_path TO "${SCHEMA}", public`);
     await client.query("BEGIN");
     const result = await fn((sql, params) => client.query(sql, params));
     await client.query("COMMIT");
