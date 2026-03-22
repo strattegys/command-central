@@ -115,7 +115,7 @@ export class TtsQueue {
       chunks.push(value);
     }
 
-    return new Blob(chunks, { type: "audio/mpeg" });
+    return new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
   }
 
   private playBlob(blob: Blob): Promise<void> {
