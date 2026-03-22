@@ -86,6 +86,8 @@ export async function chatStreamAnthropic(
       tools: tools.length > 0 ? tools : undefined,
     });
 
+    console.log(`[anthropic] stop_reason=${response.stop_reason}, blocks=${response.content.length}, types=${response.content.map(b => b.type).join(",")}`);
+
     // Check for tool use
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
@@ -150,12 +152,21 @@ export async function chatStreamAnthropic(
     const toolNames: string[] = [];
 
     for (const tc of toolUseBlocks) {
+      // Stringify non-string values for compatibility with tool executors
+      const stringArgs: Record<string, string> = {};
+      if (tc.input && typeof tc.input === "object") {
+        for (const [k, v] of Object.entries(tc.input as Record<string, unknown>)) {
+          stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
+        }
+      }
+      console.log(`[anthropic] tool_call: ${tc.name}`, JSON.stringify(stringArgs).slice(0, 200));
       const result = await executeTool(
         tc.name,
-        (tc.input as Record<string, string>) || {},
+        stringArgs,
         userMessage,
         agentId
       );
+      console.log(`[anthropic] tool_result: ${tc.name} =>`, result.slice(0, 200));
       toolNames.push(tc.name);
       toolResults.push({
         type: "tool_result",
@@ -277,9 +288,15 @@ export async function autonomousChatAnthropic(
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const tc of toolUseBlocks) {
+        const stringArgs: Record<string, string> = {};
+        if (tc.input && typeof tc.input === "object") {
+          for (const [k, v] of Object.entries(tc.input as Record<string, unknown>)) {
+            stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
+          }
+        }
         const result = await executeTool(
           tc.name,
-          (tc.input as Record<string, string>) || {},
+          stringArgs,
           "[autonomous-heartbeat]",
           agentId
         );
