@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const EMBEDDING_MODEL = "text-embedding-004";
+const EMBEDDING_MODEL = "gemini-embedding-001";
 
 let _ai: GoogleGenAI | null = null;
 function getAI(): GoogleGenAI {
@@ -14,6 +14,7 @@ export async function embedText(text: string): Promise<number[]> {
   const result = await ai.models.embedContent({
     model: EMBEDDING_MODEL,
     contents: text,
+    config: { outputDimensionality: 768 },
   });
   return result.embeddings![0].values!;
 }
