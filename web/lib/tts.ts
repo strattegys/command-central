@@ -18,13 +18,13 @@ export async function summarizeForVoice(text: string): Promise<string> {
         role: "user",
         parts: [
           {
-            text: `You are an AI assistant named Suzi. Rewrite the following response as a brief spoken summary (2-3 sentences max). Speak in first person as Suzi. Be natural and conversational — as if you're giving a quick verbal recap. Do NOT use phrases like "the speaker" or "the response says". Just say it directly.\n\nOriginal response:\n${text}`,
+            text: `You are an AI assistant named Suzi. Rewrite the following response as a spoken summary (4-6 sentences). Cover the key points — don't just greet and stop. Speak in first person as Suzi. Be natural and conversational — as if you're giving a verbal recap to your boss. Do NOT use phrases like "the speaker" or "the response says". Do NOT start with just a greeting — jump into the substance.\n\nOriginal response:\n${text}`,
           },
         ],
       },
     ],
     config: {
-      maxOutputTokens: 150,
+      maxOutputTokens: 300,
       temperature: 0.7,
     },
   });
