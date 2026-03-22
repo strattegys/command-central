@@ -24,6 +24,7 @@ export interface AgentBackendConfig {
   tools: string[];
   routines: Routine[];
   vectorMemory?: boolean;
+  provider?: "gemini" | "anthropic";
 }
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {
@@ -43,6 +44,7 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
       logFile: r.logFile,
     })),
     vectorMemory: spec.vectorMemory,
+    provider: spec.provider,
   };
 }
 

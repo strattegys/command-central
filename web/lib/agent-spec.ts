@@ -151,6 +151,10 @@ export interface AgentSpec {
   /** If true, use pgvector-based semantic memory instead of flat MEMORY.md */
   vectorMemory?: boolean;
 
+  // ── Provider ──
+  /** LLM provider: "gemini" (default) or "anthropic" */
+  provider?: "gemini" | "anthropic";
+
   // ── Delegation ──
   /** Inter-agent delegation configuration */
   delegation: DelegationSpec;

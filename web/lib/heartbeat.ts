@@ -623,7 +623,13 @@ async function runSuziDbHeartbeat(): Promise<void> {
       `Deliver these reminders to Govind in a friendly, warm way. These have already been automatically marked as delivered in the database — no need to update memory.`,
     ].join("\n");
 
-    await autonomousChat("suzi", prompt);
+    const suziConfig = getAgentConfig("suzi");
+    if (suziConfig.provider === "anthropic") {
+      const { autonomousChatAnthropic } = await import("./anthropic-chat");
+      await autonomousChatAnthropic("suzi", prompt);
+    } else {
+      await autonomousChat("suzi", prompt);
+    }
 
     // Mark delivered in DB and advance recurring ones
     for (const r of newDue) {

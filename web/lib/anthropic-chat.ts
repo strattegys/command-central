@@ -1,0 +1,325 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { getSystemPrompt } from "./system-prompt";
+import { toolDeclarations, executeTool } from "./tools";
+import { getHistory, addMessage, type ChatMessage } from "./session-store";
+import { getAgentConfig } from "./agent-config";
+import { consolidateSession } from "./memory";
+import type { ChatStreamResult } from "./gemini";
+
+const MAX_TOOL_ITERATIONS = 20;
+
+function getClient(): Anthropic {
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+}
+
+/** Convert our tool declarations to Anthropic's tool format. */
+function buildAnthropicTools(allowedTools: string[]): Anthropic.Tool[] {
+  const filtered = toolDeclarations.filter((t) =>
+    allowedTools.includes(t.name)
+  );
+  return filtered.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: {
+      type: "object" as const,
+      properties: Object.fromEntries(
+        Object.entries(t.parameters.properties).map(([k, v]) => [
+          k,
+          { type: "string" as const, description: v.description },
+        ])
+      ),
+      required: t.parameters.required,
+    },
+  }));
+}
+
+/** Convert session history to Anthropic message format. */
+function buildMessages(
+  history: ChatMessage[],
+  userMessage: string
+): Anthropic.MessageParam[] {
+  const messages: Anthropic.MessageParam[] = [];
+
+  for (const msg of history) {
+    if (!msg.text) continue;
+    messages.push({
+      role: msg.role === "model" ? "assistant" : "user",
+      content: msg.text,
+    });
+  }
+
+  messages.push({ role: "user", content: userMessage });
+  return messages;
+}
+
+/**
+ * Streaming chat with Claude — handles tool calls, then streams the final text.
+ */
+export async function chatStreamAnthropic(
+  agentId: string,
+  userMessage: string,
+  onChunk: (chunk: string) => void
+): Promise<ChatStreamResult> {
+  const client = getClient();
+  const config = getAgentConfig(agentId);
+  const systemPrompt = await getSystemPrompt(
+    config.systemPromptFile,
+    agentId,
+    userMessage
+  );
+  const history = getHistory(config.sessionFile);
+  const tools = buildAnthropicTools(config.tools);
+  const delegatedAgents = new Set<string>();
+
+  let messages = buildMessages(history, userMessage);
+  let iterations = 0;
+
+  // Tool call loop (non-streaming)
+  while (iterations < MAX_TOOL_ITERATIONS) {
+    iterations++;
+
+    const response = await client.messages.create({
+      model: config.modelName || "claude-haiku-4-5-20251001",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages,
+      tools: tools.length > 0 ? tools : undefined,
+    });
+
+    // Check for tool use
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
+
+    if (toolUseBlocks.length === 0) {
+      // No tool calls — extract text and stream it
+      const textBlocks = response.content.filter(
+        (b): b is Anthropic.TextBlock => b.type === "text"
+      );
+      const fullText = textBlocks.map((b) => b.text).join("");
+
+      if (fullText) {
+        // Save to session
+        addMessage(config.sessionFile, {
+          role: "user",
+          text: userMessage,
+          timestamp: Date.now(),
+        });
+        const modelMsg: ChatMessage = {
+          role: "model",
+          text: fullText,
+          timestamp: Date.now(),
+        };
+        if (delegatedAgents.size > 0) {
+          modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+        }
+        addMessage(config.sessionFile, modelMsg);
+        consolidateSession(agentId, config.sessionFile).catch(() => {});
+
+        onChunk(fullText);
+        return {
+          text: fullText,
+          delegatedFrom:
+            delegatedAgents.size > 0
+              ? Array.from(delegatedAgents).join(",")
+              : undefined,
+        };
+      }
+
+      // No text, no tools — stop
+      break;
+    }
+
+    // Execute tool calls
+    // First, add the assistant's response to messages
+    messages = [
+      ...messages,
+      { role: "assistant" as const, content: response.content },
+    ];
+
+    // Track delegate_task calls
+    for (const tc of toolUseBlocks) {
+      if (tc.name === "delegate_task") {
+        const args = tc.input as Record<string, string>;
+        if (args?.agent) delegatedAgents.add(args.agent);
+      }
+    }
+
+    // Execute all tool calls
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const toolNames: string[] = [];
+
+    for (const tc of toolUseBlocks) {
+      const result = await executeTool(
+        tc.name,
+        (tc.input as Record<string, string>) || {},
+        userMessage,
+        agentId
+      );
+      toolNames.push(tc.name);
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: tc.id,
+        content: result,
+      });
+    }
+
+    // Notify client which tools were used
+    for (const tn of toolNames) {
+      onChunk(`\n<!--toolUsed:${tn}-->`);
+    }
+
+    // Add tool results
+    messages = [...messages, { role: "user" as const, content: toolResults }];
+  }
+
+  // If we got here without returning, do a final streaming call
+  let fullText = "";
+
+  const stream = client.messages.stream({
+    model: config.modelName || "claude-haiku-4-5-20251001",
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages,
+    tools: tools.length > 0 ? tools : undefined,
+  });
+
+  for await (const event of stream) {
+    if (
+      event.type === "content_block_delta" &&
+      event.delta.type === "text_delta"
+    ) {
+      fullText += event.delta.text;
+      onChunk(event.delta.text);
+    }
+  }
+
+  if (fullText) {
+    addMessage(config.sessionFile, {
+      role: "user",
+      text: userMessage,
+      timestamp: Date.now(),
+    });
+    const modelMsg: ChatMessage = {
+      role: "model",
+      text: fullText,
+      timestamp: Date.now(),
+    };
+    if (delegatedAgents.size > 0) {
+      modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+    }
+    addMessage(config.sessionFile, modelMsg);
+    consolidateSession(agentId, config.sessionFile).catch(() => {});
+  }
+
+  return {
+    text: fullText,
+    delegatedFrom:
+      delegatedAgents.size > 0
+        ? Array.from(delegatedAgents).join(",")
+        : undefined,
+  };
+}
+
+/**
+ * Autonomous (non-streaming) chat with Claude — used by heartbeat.
+ */
+export async function autonomousChatAnthropic(
+  agentId: string,
+  triggerPrompt: string,
+  options?: { maxHistory?: number; fromAgent?: string }
+): Promise<string> {
+  const client = getClient();
+  const config = getAgentConfig(agentId);
+  const systemPrompt = await getSystemPrompt(
+    config.systemPromptFile,
+    agentId,
+    triggerPrompt
+  );
+  const history = getHistory(config.sessionFile);
+  const tools = buildAnthropicTools(config.tools);
+
+  const maxHistory = options?.maxHistory ?? 20;
+  const recentHistory = history.slice(-maxHistory);
+
+  if (options?.fromAgent) {
+    addMessage(config.sessionFile, {
+      role: "user",
+      text: triggerPrompt,
+      timestamp: Date.now(),
+      fromAgent: options.fromAgent,
+    });
+  }
+
+  let messages = buildMessages(recentHistory, triggerPrompt);
+  let iterations = 0;
+
+  while (iterations < MAX_TOOL_ITERATIONS) {
+    iterations++;
+
+    const response = await client.messages.create({
+      model: config.modelName || "claude-haiku-4-5-20251001",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages,
+      tools: tools.length > 0 ? tools : undefined,
+    });
+
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
+
+    if (toolUseBlocks.length > 0) {
+      messages = [
+        ...messages,
+        { role: "assistant" as const, content: response.content },
+      ];
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const tc of toolUseBlocks) {
+        const result = await executeTool(
+          tc.name,
+          (tc.input as Record<string, string>) || {},
+          "[autonomous-heartbeat]",
+          agentId
+        );
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tc.id,
+          content: result,
+        });
+      }
+
+      messages = [...messages, { role: "user" as const, content: toolResults }];
+      continue;
+    }
+
+    const textBlocks = response.content.filter(
+      (b): b is Anthropic.TextBlock => b.type === "text"
+    );
+    const replyText = textBlocks.map((b) => b.text).join("");
+
+    if (replyText) {
+      addMessage(config.sessionFile, {
+        role: "model",
+        text: replyText,
+        timestamp: Date.now(),
+      });
+      return replyText;
+    }
+
+    break;
+  }
+
+  if (options?.fromAgent && iterations > 0) {
+    const fallbackMsg = "(Task was processed but no summary was generated)";
+    addMessage(config.sessionFile, {
+      role: "model",
+      text: fallbackMsg,
+      timestamp: Date.now(),
+    });
+    return fallbackMsg;
+  }
+
+  return "";
+}

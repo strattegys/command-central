@@ -1,5 +1,7 @@
 import { type NextRequest } from "next/server";
 import { chatStream } from "@/lib/gemini";
+import { chatStreamAnthropic } from "@/lib/anthropic-chat";
+import { getAgentConfig } from "@/lib/agent-config";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,11 +15,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const config = getAgentConfig(agentId);
+    const chatFn = config.provider === "anthropic" ? chatStreamAnthropic : chatStream;
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const result = await chatStream(agentId, message, (chunk) => {
+          const result = await chatFn(agentId, message, (chunk) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
           });
           if (result.delegatedFrom) {
