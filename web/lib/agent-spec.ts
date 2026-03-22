@@ -21,7 +21,8 @@ export type ToolId =
   | "reminders"
   | "workflow_manager"
   | "package_manager"
-  | "punch_list";
+  | "punch_list"
+  | "notes";
 
 // ─── Agent Categories ───
 
