@@ -23,6 +23,7 @@ export interface AgentBackendConfig {
   memoryDir: string;
   tools: string[];
   routines: Routine[];
+  vectorMemory?: boolean;
 }
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {
@@ -41,6 +42,7 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
       description: r.description,
       logFile: r.logFile,
     })),
+    vectorMemory: spec.vectorMemory,
   };
 }
 
