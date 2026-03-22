@@ -21,6 +21,7 @@ import workflowManager from "./workflow-manager";
 import workflowItems from "./workflow-items";
 import packageManager from "./package-manager";
 import punchListTool from "./punch-list-tool";
+import notesTool from "./notes-tool";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 export const TOOL_REGISTRY: Record<string, ToolModule> = {
@@ -35,6 +36,7 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   workflow_items: workflowItems,
   package_manager: packageManager,
   punch_list: punchListTool,
+  notes: notesTool,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────

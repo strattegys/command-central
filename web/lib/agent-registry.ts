@@ -193,7 +193,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     sessionFile: "/root/.suzibot/workspace/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.suzibot/system-prompt.md",
     memoryDir: "/root/.suzibot/memory",
-    tools: ["web_search", "memory", "reminders", "punch_list"],
+    tools: ["web_search", "memory", "reminders", "punch_list", "notes"],
     capabilities: [
       "Web search",
       "Summaries",

@@ -10,6 +10,7 @@ import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
 import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
+import SuziNotesPanel from "@/components/suzi/SuziNotesPanel";
 
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
@@ -35,7 +36,7 @@ function ChatPage() {
   const paramPanel = searchParams.get("panel");
 
   // Each agent's default panel when selected
-  function defaultPanelFor(agentId: string): "info" | "kanban" | "dashboard" | "reminders" {
+  function defaultPanelFor(agentId: string): "info" | "kanban" | "dashboard" | "reminders" | "notes" {
     if (agentId === "friday") return "dashboard";
     if (agentId === "penny") return "dashboard";
     if (agentId === "suzi") return "reminders";
@@ -46,8 +47,8 @@ function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState(paramAgent || "suzi");
-  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "dashboard" | "reminders">(
-    (paramPanel as "info" | "kanban" | "dashboard" | "reminders") || defaultPanelFor(paramAgent || "suzi")
+  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "dashboard" | "reminders" | "notes">(
+    (paramPanel as "info" | "kanban" | "dashboard" | "reminders" | "notes") || defaultPanelFor(paramAgent || "suzi")
   );
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
@@ -773,6 +774,23 @@ function ChatPage() {
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                 </button>
+                <button
+                  onClick={() => setRightPanel("notes")}
+                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                    rightPanel === "notes"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title="Notes"
+                >
+                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                </button>
               </>
             )}
             <button
@@ -802,6 +820,8 @@ function ChatPage() {
             <PennyDashboardPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
             <SuziRemindersPanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "notes" && activeAgent === "suzi" ? (
+            <SuziNotesPanel onClose={() => setRightPanel("info")} />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}
