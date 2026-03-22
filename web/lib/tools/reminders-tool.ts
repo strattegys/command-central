@@ -21,7 +21,7 @@ const tool: ToolModule = {
   declaration: {
     name: "reminders",
     description:
-      "Manage reminders and important dates. Use this to track birthdays, holidays, recurring events, one-time tasks, and important facts. Commands: 'list' (optional category filter), 'search' (find by keyword), 'add' (create new), 'update' (modify existing), 'delete' (remove), 'upcoming' (next 10 due). Categories: birthday, holiday, recurring, one-time, fact. Recurrence: yearly, monthly, weekly, daily.",
+      "Manage reminders, important dates, and notes. Use this to track birthdays, holidays, recurring events, one-time tasks, and reference notes for the user. Commands: 'list' (optional category filter), 'search' (find by keyword), 'add' (create new), 'update' (modify existing), 'delete' (remove), 'upcoming' (next 10 due). Categories: birthday, holiday, recurring, one-time, note. Recurrence: yearly, monthly, weekly, daily. Notes are user-facing reference items (e.g. 'Elle likes purple', 'wifi password is ...').",
     parameters: {
       type: "object" as const,
       properties: {
@@ -40,7 +40,7 @@ const tool: ToolModule = {
         category: {
           type: "string",
           description:
-            "birthday, holiday, recurring, one-time, or fact (for add/update/list filter)",
+            "birthday, holiday, recurring, one-time, or note (for add/update/list filter)",
         },
         date: {
           type: "string",

@@ -190,11 +190,27 @@ ${messages.slice(-100).join("\n")}`;
         .filter((l) => l.trim().startsWith("-"))
         .map((l) => l.trim().replace(/^-\s*/, ""));
 
-      const existingMemory = readMemory(agentId);
-      for (const fact of facts) {
-        // Avoid duplicate facts (simple substring check)
-        if (!existingMemory.includes(fact)) {
-          appendMemoryFact(agentId, fact);
+      const isVector = (() => {
+        try { return !!getAgentConfig(agentId).vectorMemory; }
+        catch { return false; }
+      })();
+
+      if (isVector) {
+        // Vector path: embed and insert each fact (dedup handled by insertMemory)
+        const { insertMemory } = await import("./vector-memory");
+        for (const fact of facts) {
+          await insertMemory(agentId, fact, {
+            source: "consolidation",
+            category: inferCategory(fact),
+          });
+        }
+      } else {
+        // File-based path (original)
+        const existingMemory = readMemory(agentId);
+        for (const fact of facts) {
+          if (!existingMemory.includes(fact)) {
+            appendMemoryFact(agentId, fact);
+          }
         }
       }
     }
@@ -222,4 +238,18 @@ ${messages.slice(-100).join("\n")}`;
   } catch (error) {
     console.error(`[memory] Consolidation error for ${agentId}:`, error);
   }
+}
+
+/** Simple keyword heuristic to categorize extracted facts. */
+function inferCategory(fact: string): string {
+  const lower = fact.toLowerCase();
+  if (/\bprefer|like|dislike|favorite|love|hate|want\b/.test(lower))
+    return "preference";
+  if (/\bname is|birthday|wife|husband|daughter|son|friend|boss|susan|elle\b/.test(lower))
+    return "person";
+  if (/\bproject|app|build|deploy|launch|website|repo\b/.test(lower))
+    return "project";
+  if (/\bdecide|chose|pick|went with|agreed|approved\b/.test(lower))
+    return "decision";
+  return "fact";
 }

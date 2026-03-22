@@ -217,6 +217,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     },
     workflowTypes: [],
     ttsVoice: "Zephyr",
+    vectorMemory: true,
     delegation: {
       canDelegateTo: [],
       acceptsTaskTypes: [],

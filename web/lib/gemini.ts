@@ -43,7 +43,7 @@ export async function chat(
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
+  const systemPrompt = await getSystemPrompt(config.systemPromptFile, agentId, userMessage);
   const sessionFile = options?.sessionFile || config.sessionFile;
   const history = getHistory(sessionFile);
 
@@ -168,7 +168,7 @@ export async function autonomousChat(
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
+  const systemPrompt = await getSystemPrompt(config.systemPromptFile, agentId, triggerPrompt);
   const history = getHistory(config.sessionFile);
 
   const maxHistory = options?.maxHistory ?? 20;
@@ -287,7 +287,7 @@ export async function chatStream(
 ): Promise<ChatStreamResult> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
+  const systemPrompt = await getSystemPrompt(config.systemPromptFile, agentId, userMessage);
   const history = getHistory(config.sessionFile);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

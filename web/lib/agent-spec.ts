@@ -147,6 +147,10 @@ export interface AgentSpec {
   /** TTS voice name (Gemini prebuilt). If set, agent responses are spoken aloud. */
   ttsVoice?: string;
 
+  // ── Memory ──
+  /** If true, use pgvector-based semantic memory instead of flat MEMORY.md */
+  vectorMemory?: boolean;
+
   // ── Delegation ──
   /** Inter-agent delegation configuration */
   delegation: DelegationSpec;

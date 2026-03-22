@@ -3,7 +3,7 @@ import { query } from "./db";
 export interface Reminder {
   id: string;
   agentId: string;
-  category: "birthday" | "holiday" | "recurring" | "one-time" | "fact";
+  category: "birthday" | "holiday" | "recurring" | "one-time" | "note";
   title: string;
   description: string | null;
   nextDueAt: string | null;
