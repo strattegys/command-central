@@ -46,14 +46,27 @@ export default function ReminderCard({
   const icon = CATEGORY_ICONS[reminder.category] || "\uD83D\uDD14";
   const catColor = CATEGORY_COLORS[reminder.category] || "#888";
 
-  const dueLabel = reminder.nextDueAt
-    ? new Date(reminder.nextDueAt).toLocaleDateString("en-US", {
+  const dueDate = reminder.nextDueAt ? new Date(reminder.nextDueAt) : null;
+  const dueLabel = dueDate
+    ? dueDate.toLocaleDateString("en-US", {
         timeZone: "America/Los_Angeles",
         weekday: "short",
         month: "short",
         day: "numeric",
         year: "numeric",
       })
+    : null;
+  // Show time for non-all-day reminders (not midnight)
+  const dueTime = dueDate
+    ? (() => {
+        const t = dueDate.toLocaleTimeString("en-US", {
+          timeZone: "America/Los_Angeles",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        // Skip if midnight (likely an all-day/date-only reminder)
+        return t === "12:00 AM" ? null : t;
+      })()
     : null;
 
   const isOverdue =
@@ -104,7 +117,7 @@ export default function ReminderCard({
                 }`}
               >
                 {isOverdue ? "Overdue: " : ""}
-                {dueLabel}
+                {dueLabel}{dueTime ? ` at ${dueTime}` : ""}
               </span>
             )}
             {reminder.recurrence && (
