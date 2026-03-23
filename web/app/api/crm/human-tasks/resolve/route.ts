@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
  */
 async function checkHandoffs(
   item: { id: string; workflowId: string; sourceType: string; sourceId: string },
-  wf: { id: string; packageId: string | null; ownerAgent: string },
+  wf: { id: string; name: string; packageId: string | null; ownerAgent: string; spec?: { workflowType?: string } | string },
   newStage: string
 ): Promise<Array<{ targetWorkflow: string; stage: string }>> {
   if (!wf.packageId) return [];

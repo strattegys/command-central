@@ -31,6 +31,8 @@ interface ArtifactViewerProps {
   artifact?: Artifact;
   /** "person" shows a people table, "content" shows artifact markdown */
   itemType?: string;
+  /** Focus on a specific stage's artifact */
+  focusStage?: string;
   onClose: () => void;
 }
 

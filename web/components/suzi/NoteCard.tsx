@@ -21,13 +21,14 @@ const TAG_COLORS: Record<string, string> = {
 
 interface NoteCardProps {
   note: Note;
+  onDelete?: (id: string) => void;
 }
 
-export default function NoteCard({ note }: NoteCardProps) {
+export default function NoteCard({ note, onDelete }: NoteCardProps) {
   const tagColor = TAG_COLORS[note.tag || ""] || "#A78BFA";
 
   return (
-    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 transition-colors">
+    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 transition-colors group">
       <div className="flex items-start gap-2">
         {/* Pin indicator */}
         {note.pinned && (
@@ -38,10 +39,23 @@ export default function NoteCard({ note }: NoteCardProps) {
 
         <div className="flex-1 min-w-0">
           {/* Title with note number */}
-          <span className="text-xs font-semibold text-[var(--text-primary)]">
-            <span className="text-[var(--text-tertiary)] font-mono mr-1">#{note.noteNumber}</span>
-            {note.title}
-          </span>
+          <div className="flex items-start justify-between gap-1">
+            <span className="text-xs font-semibold text-[var(--text-primary)]">
+              <span className="text-[var(--text-tertiary)] font-mono mr-1">#{note.noteNumber}</span>
+              {note.title}
+            </span>
+            {onDelete && (
+              <button
+                onClick={() => onDelete(note.id)}
+                className="opacity-0 group-hover:opacity-100 text-[var(--text-tertiary)] hover:text-red-400 transition-all shrink-0 p-0.5"
+                title="Delete note"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
 
           {/* Content preview */}
           {note.content && (

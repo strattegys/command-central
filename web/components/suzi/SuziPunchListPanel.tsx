@@ -13,6 +13,17 @@ const FILTER_TO_STATUS: Record<string, "open" | "done" | undefined> = {
   Done: "done",
 };
 
+const RANK_COLORS: Record<number, string> = {
+  1: "#EF4444",
+  2: "#F97316",
+  3: "#F59E0B",
+  4: "#EAB308",
+  5: "#84CC16",
+  6: "#22C55E",
+  7: "#6366F1",
+  8: "#9CA3AF",
+};
+
 interface SuziPunchListPanelProps {
   onClose: () => void;
   embedded?: boolean;
@@ -26,6 +37,7 @@ export default function SuziPunchListPanel({
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedRanks, setSelectedRanks] = useState<Set<number>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_punchlist_filter");
@@ -88,12 +100,37 @@ export default function SuziPunchListPanel({
     return unsub;
   }, [fetchItems, fetchCategories]);
 
-  // Status counts from current items
-  const statusCounts: Record<string, number> = { All: items.length };
-  for (const item of items) {
+  // Filter items by rank client-side
+  const filteredItems = selectedRanks.size > 0
+    ? items.filter((item) => selectedRanks.has(item.rank))
+    : items;
+
+  // Status counts from filtered items
+  const statusCounts: Record<string, number> = { All: filteredItems.length };
+  for (const item of filteredItems) {
     statusCounts[item.status === "open" ? "Open" : "Done"] =
       (statusCounts[item.status === "open" ? "Open" : "Done"] || 0) + 1;
   }
+
+  // Category counts from items (before rank filter so cloud reflects full dataset)
+  const categoryCounts: Record<string, number> = {};
+  for (const item of items) {
+    if (item.category) {
+      categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1;
+    }
+  }
+
+  // Available ranks from items
+  const availableRanks = [...new Set(items.map((i) => i.rank))].sort((a, b) => a - b);
+
+  const toggleRank = (rank: number) => {
+    setSelectedRanks((prev) => {
+      const next = new Set(prev);
+      if (next.has(rank)) next.delete(rank);
+      else next.add(rank);
+      return next;
+    });
+  };
 
   return (
     <div className={embedded ? "flex-1 flex flex-col overflow-hidden min-w-0" : "flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0"}>
@@ -104,7 +141,7 @@ export default function SuziPunchListPanel({
             Punch List
           </span>
           <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${items.length} items`}
+            {loading ? "Loading..." : `${filteredItems.length} items`}
           </span>
         </div>
       )}
@@ -113,7 +150,7 @@ export default function SuziPunchListPanel({
       {embedded && (
         <div className="shrink-0 px-3 py-1.5 border-b border-[var(--border-color)] flex items-center">
           <span className="text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${items.length} items`}
+            {loading ? "Loading..." : `${filteredItems.length} items`}
           </span>
         </div>
       )}
@@ -152,7 +189,7 @@ export default function SuziPunchListPanel({
         })}
       </div>
 
-      {/* Category filter pills */}
+      {/* Category tag cloud */}
       {categories.length > 0 && (
         <div className="shrink-0 px-3 py-1.5 flex gap-1 flex-wrap border-b border-[var(--border-color)]">
           <button
@@ -165,19 +202,57 @@ export default function SuziPunchListPanel({
           >
             All
           </button>
-          {categories.map((cat) => (
+          {categories.map((cat) => {
+            const count = categoryCounts[cat] || 0;
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
+                className={`px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+                  selectedCategory === cat
+                    ? "bg-[var(--accent-green)] text-white font-medium"
+                    : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                }`}
+                style={{ fontSize: count > 5 ? 11 : count > 2 ? 10 : 9 }}
+              >
+                {cat}
+                <span className="ml-1 opacity-60">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Rank filter */}
+      {availableRanks.length > 1 && (
+        <div className="shrink-0 px-3 py-1.5 flex items-center gap-1 border-b border-[var(--border-color)]">
+          <span className="text-[9px] text-[var(--text-tertiary)] mr-1">Rank</span>
+          {availableRanks.map((rank) => (
             <button
-              key={cat}
-              onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
-              className={`text-[9px] px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
-                selectedCategory === cat
-                  ? "bg-[var(--accent-green)] text-white font-medium"
-                  : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
-              }`}
+              key={rank}
+              onClick={() => toggleRank(rank)}
+              className="text-[10px] w-5 h-5 rounded cursor-pointer transition-all flex items-center justify-center font-medium"
+              style={{
+                backgroundColor: selectedRanks.has(rank)
+                  ? RANK_COLORS[rank] || "#9CA3AF"
+                  : "var(--bg-secondary)",
+                color: selectedRanks.has(rank) ? "#fff" : RANK_COLORS[rank] || "#9CA3AF",
+                border: selectedRanks.has(rank)
+                  ? "none"
+                  : `1px solid ${RANK_COLORS[rank] || "#9CA3AF"}44`,
+              }}
             >
-              {cat}
+              {rank}
             </button>
           ))}
+          {selectedRanks.size > 0 && (
+            <button
+              onClick={() => setSelectedRanks(new Set())}
+              className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] ml-1 cursor-pointer"
+            >
+              clear
+            </button>
+          )}
         </div>
       )}
 
@@ -205,7 +280,7 @@ export default function SuziPunchListPanel({
             </div>
           </div>
         ) : (
-          items.map((item) => (
+          filteredItems.map((item) => (
             <PunchListCard
               key={item.id}
               item={item}

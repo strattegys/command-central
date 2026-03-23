@@ -22,7 +22,9 @@ export type ToolId =
   | "workflow_manager"
   | "package_manager"
   | "punch_list"
-  | "notes";
+  | "notes"
+  | "beehiiv"
+  | "publish_article";
 
 // ─── Agent Categories ───
 

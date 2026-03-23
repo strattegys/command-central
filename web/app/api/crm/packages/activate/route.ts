@@ -30,10 +30,11 @@ export async function POST(req: NextRequest) {
     const pkgRows = await query<{
       id: string;
       name: string;
+      templateId: string;
       stage: string;
-      spec: { deliverables: Array<{ workflowType: string; ownerAgent: string; targetCount: number; label: string; pacing?: { batchSize: number; interval: string; bufferPercent?: number } }> };
+      spec: { templateId?: string; deliverables: Array<{ workflowType: string; ownerAgent: string; targetCount: number; label: string; pacing?: { batchSize: number; interval: string; bufferPercent?: number } }> };
     }>(
-      `SELECT id, name, stage, spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+      `SELECT id, name, "templateId", stage, spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
       [packageId]
     );
 

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   listPunchListItems,
+  listCategories,
   addPunchListItem,
   updatePunchListItem,
   deletePunchListItem,
@@ -10,10 +11,18 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get("agentId") || "suzi";
+
+    // Return just categories list
+    if (searchParams.get("categories") === "true") {
+      const categories = await listCategories(agentId);
+      return NextResponse.json({ categories });
+    }
+
     const status = (searchParams.get("status") as "open" | "done") || undefined;
     const search = searchParams.get("search") || undefined;
+    const category = searchParams.get("category") || undefined;
 
-    const items = await listPunchListItems(agentId, { status, search });
+    const items = await listPunchListItems(agentId, { status, search, category });
     return NextResponse.json({ items });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to fetch punch list";
@@ -31,6 +40,7 @@ export async function POST(request: NextRequest) {
       title: body.title,
       description: body.description,
       rank: body.rank,
+      category: body.category,
     });
     return NextResponse.json({ item });
   } catch (error: unknown) {

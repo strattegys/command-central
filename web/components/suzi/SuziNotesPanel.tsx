@@ -75,6 +75,20 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
     return unsub;
   }, [fetchNotes, fetchTags]);
 
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "delete", id }),
+      });
+      fetchNotes();
+      fetchTags();
+    } catch {
+      // ignore
+    }
+  }, [fetchNotes, fetchTags]);
+
   const pinnedCount = notes.filter((n) => n.pinned).length;
 
   return (
@@ -155,7 +169,7 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
             </div>
           </div>
         ) : (
-          notes.map((note) => <NoteCard key={note.id} note={note} />)
+          notes.map((note) => <NoteCard key={note.id} note={note} onDelete={handleDelete} />)
         )}
       </div>
     </div>
