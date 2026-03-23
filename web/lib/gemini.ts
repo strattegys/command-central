@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getSystemPrompt } from "./system-prompt";
-import { toolDeclarations, executeTool } from "./tools";
+import { toolDeclarations, executeTool, TOOL_REGISTRY } from "./tools";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
@@ -72,7 +72,7 @@ export async function chat(
       contents,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.7,
+        temperature: config.temperature ?? 0.7,
         maxOutputTokens: 4096,
         tools,
       },
@@ -87,36 +87,76 @@ export async function chat(
     const functionCalls = parts.filter((p) => p.functionCall);
 
     if (functionCalls.length > 0) {
+      // Hallucination guard: validate tool names before executing
+      const validCalls = [];
+      const invalidCalls = [];
+      for (const fc of functionCalls) {
+        const toolName = fc.functionCall?.name;
+        if (toolName && TOOL_REGISTRY[toolName]) {
+          validCalls.push(fc);
+        } else {
+          invalidCalls.push(fc);
+        }
+      }
+
       contents.push({ role: "model", parts });
 
+      // If ALL calls are hallucinated, feed back error and let model retry
+      if (validCalls.length === 0 && invalidCalls.length > 0) {
+        const badNames = invalidCalls.map((fc) => fc.functionCall?.name).join(", ");
+        contents.push({
+          role: "user",
+          parts: invalidCalls.map((fc) => ({
+            functionResponse: {
+              name: fc.functionCall!.name!,
+              response: {
+                result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Available tools: ${config.tools.join(", ")}. Use ONLY these tools. Do NOT invent tool names.`,
+              },
+            },
+          })),
+        });
+        console.warn(`[${agentId}] Hallucination guard: rejected tools [${badNames}]`);
+        continue;
+      }
+
       // Track delegate_task calls for attribution
-      for (const fc of functionCalls) {
+      for (const fc of validCalls) {
         if (fc.functionCall?.name === "delegate_task") {
           const args = fc.functionCall.args as Record<string, string>;
           if (args?.agent) delegatedAgents.add(args.agent);
         }
       }
 
-      const functionResponses = await Promise.all(
-        functionCalls.map(async (fc) => {
-          const result = await executeTool(
-            fc.functionCall!.name!,
-            (fc.functionCall!.args as Record<string, string>) || {},
-            userMessage,
-            agentId
-          );
-          return {
-            functionResponse: {
-              name: fc.functionCall!.name!,
-              response: { result },
+      // Execute valid calls; return errors for invalid ones
+      const allResponses = [];
+      for (const fc of validCalls) {
+        const result = await executeTool(
+          fc.functionCall!.name!,
+          (fc.functionCall!.args as Record<string, string>) || {},
+          userMessage,
+          agentId
+        );
+        allResponses.push({
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: { result },
+          },
+        });
+      }
+      for (const fc of invalidCalls) {
+        allResponses.push({
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: {
+              result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Use ONLY these tools: ${config.tools.join(", ")}`,
             },
-          };
-        })
-      );
+          },
+        });
+      }
 
       contents.push({
         role: "user",
-        parts: functionResponses,
+        parts: allResponses,
       });
 
       continue;
@@ -204,7 +244,7 @@ export async function autonomousChat(
       contents,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.7,
+        temperature: config.temperature ?? 0.7,
         maxOutputTokens: 4096,
         tools,
       },
@@ -217,26 +257,64 @@ export async function autonomousChat(
     const functionCalls = parts.filter((p) => p.functionCall);
 
     if (functionCalls.length > 0) {
+      // Hallucination guard: validate tool names
+      const validCalls = [];
+      const invalidCalls = [];
+      for (const fc of functionCalls) {
+        const toolName = fc.functionCall?.name;
+        if (toolName && TOOL_REGISTRY[toolName]) {
+          validCalls.push(fc);
+        } else {
+          invalidCalls.push(fc);
+        }
+      }
+
       contents.push({ role: "model", parts });
 
-      const functionResponses = await Promise.all(
-        functionCalls.map(async (fc) => {
-          const result = await executeTool(
-            fc.functionCall!.name!,
-            (fc.functionCall!.args as Record<string, string>) || {},
-            "[autonomous-heartbeat]", // Won't match approval phrases
-            agentId
-          );
-          return {
+      if (validCalls.length === 0 && invalidCalls.length > 0) {
+        const badNames = invalidCalls.map((fc) => fc.functionCall?.name).join(", ");
+        contents.push({
+          role: "user",
+          parts: invalidCalls.map((fc) => ({
             functionResponse: {
               name: fc.functionCall!.name!,
-              response: { result },
+              response: {
+                result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Available tools: ${config.tools.join(", ")}. Use ONLY these tools.`,
+              },
             },
-          };
-        })
-      );
+          })),
+        });
+        console.warn(`[${agentId}] Hallucination guard (autonomous): rejected [${badNames}]`);
+        continue;
+      }
 
-      contents.push({ role: "user", parts: functionResponses });
+      const allResponses = [];
+      for (const fc of validCalls) {
+        const result = await executeTool(
+          fc.functionCall!.name!,
+          (fc.functionCall!.args as Record<string, string>) || {},
+          "[autonomous-heartbeat]",
+          agentId
+        );
+        allResponses.push({
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: { result },
+          },
+        });
+      }
+      for (const fc of invalidCalls) {
+        allResponses.push({
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: {
+              result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Use ONLY: ${config.tools.join(", ")}`,
+            },
+          },
+        });
+      }
+
+      contents.push({ role: "user", parts: allResponses });
       continue;
     }
 
@@ -300,7 +378,7 @@ export async function chatStream(
   const tools = buildGeminiTools(config.tools);
   const geminiConfig = {
     systemInstruction: systemPrompt,
-    temperature: 0.7,
+    temperature: config.temperature ?? 0.7,
     maxOutputTokens: 4096,
     tools,
   };
@@ -357,10 +435,39 @@ export async function chatStream(
       break; // No text — fall through to streaming call
     }
 
+    // Hallucination guard: validate tool names
+    const validCalls = [];
+    const invalidCalls = [];
+    for (const fc of functionCalls) {
+      const toolName = fc.functionCall?.name;
+      if (toolName && TOOL_REGISTRY[toolName]) {
+        validCalls.push(fc);
+      } else {
+        invalidCalls.push(fc);
+      }
+    }
+
     contents.push({ role: "model", parts });
 
+    if (validCalls.length === 0 && invalidCalls.length > 0) {
+      const badNames = invalidCalls.map((fc) => fc.functionCall?.name).join(", ");
+      contents.push({
+        role: "user",
+        parts: invalidCalls.map((fc) => ({
+          functionResponse: {
+            name: fc.functionCall!.name!,
+            response: {
+              result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Available tools: ${config.tools.join(", ")}. Use ONLY these tools. Do NOT invent tool names.`,
+            },
+          },
+        })),
+      });
+      console.warn(`[${agentId}] Hallucination guard (stream): rejected [${badNames}]`);
+      continue;
+    }
+
     // Track delegate_task calls for attribution
-    for (const fc of functionCalls) {
+    for (const fc of validCalls) {
       if (fc.functionCall?.name === "delegate_task") {
         const args = fc.functionCall.args as Record<string, string>;
         if (args?.agent) delegatedAgents.add(args.agent);
@@ -368,31 +475,40 @@ export async function chatStream(
     }
 
     const toolNames: string[] = [];
-    const functionResponses = await Promise.all(
-      functionCalls.map(async (fc) => {
-        const toolName = fc.functionCall!.name!;
-        const result = await executeTool(
-          toolName,
-          (fc.functionCall!.args as Record<string, string>) || {},
-          userMessage,
-          agentId
-        );
-        toolNames.push(toolName);
-        return {
-          functionResponse: {
-            name: toolName,
-            response: { result },
+    const allResponses = [];
+    for (const fc of validCalls) {
+      const toolName = fc.functionCall!.name!;
+      const result = await executeTool(
+        toolName,
+        (fc.functionCall!.args as Record<string, string>) || {},
+        userMessage,
+        agentId
+      );
+      toolNames.push(toolName);
+      allResponses.push({
+        functionResponse: {
+          name: toolName,
+          response: { result },
+        },
+      });
+    }
+    for (const fc of invalidCalls) {
+      allResponses.push({
+        functionResponse: {
+          name: fc.functionCall!.name!,
+          response: {
+            result: `ERROR: Tool "${fc.functionCall!.name}" does not exist. Use ONLY: ${config.tools.join(", ")}`,
           },
-        };
-      })
-    );
+        },
+      });
+    }
 
     // Notify the client which tools were used (for panel refresh)
     for (const tn of toolNames) {
       onChunk(`\n<!--toolUsed:${tn}-->`);
     }
 
-    contents.push({ role: "user", parts: functionResponses });
+    contents.push({ role: "user", parts: allResponses });
   }
 
   // Stream the final text response

@@ -115,6 +115,8 @@ export interface AgentSpec {
   // ── Technical Config ──
   /** LLM model override. Omit to use default "gemini-2.5-flash". */
   modelName?: string;
+  /** Temperature for LLM calls. Lower = more deterministic tool use. Default 0.7. */
+  temperature?: number;
   /** Absolute path to JSONL session file on server */
   sessionFile: string;
   /** Absolute path to system prompt markdown on server */

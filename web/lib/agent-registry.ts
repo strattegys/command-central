@@ -224,6 +224,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     ttsVoice: "Zephyr",
     vectorMemory: true,
     modelName: "gemini-2.5-pro",
+    temperature: 0.2,
     delegation: {
       canDelegateTo: [],
       acceptsTaskTypes: [],
@@ -287,6 +288,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "twenty_crm",
       "workflow_items",
       "beehiiv",
+      "publish_article",
     ],
     capabilities: [
       "Content research",

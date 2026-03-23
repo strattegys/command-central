@@ -17,6 +17,7 @@ export interface Routine {
 export interface AgentBackendConfig {
   id: string;
   modelName?: string;
+  temperature?: number;
   hasKanban?: boolean;
   sessionFile: string;
   systemPromptFile: string;
@@ -32,6 +33,7 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
   return {
     id: spec.id,
     modelName: spec.modelName,
+    temperature: spec.temperature,
     hasKanban: spec.workflowTypes.length > 0,
     sessionFile: spec.sessionFile,
     systemPromptFile: spec.systemPromptFile,
