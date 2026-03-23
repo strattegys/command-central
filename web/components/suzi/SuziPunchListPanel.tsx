@@ -112,13 +112,15 @@ export default function SuziPunchListPanel({
       (statusCounts[item.status === "open" ? "Open" : "Done"] || 0) + 1;
   }
 
-  // Category counts from items (before rank filter so cloud reflects full dataset)
+  // Category counts from active (open) items only
   const categoryCounts: Record<string, number> = {};
   for (const item of items) {
-    if (item.category) {
+    if (item.category && item.status === "open") {
       categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1;
     }
   }
+  // Only show categories that have active items
+  const activeCategories = categories.filter((cat) => categoryCounts[cat] > 0);
 
   // Available ranks from items
   const availableRanks = [...new Set(items.map((i) => i.rank))].sort((a, b) => a - b);
@@ -190,7 +192,7 @@ export default function SuziPunchListPanel({
       </div>
 
       {/* Category tag cloud */}
-      {categories.length > 0 && (
+      {activeCategories.length > 0 && (
         <div className="shrink-0 px-3 py-1.5 flex gap-1 flex-wrap border-b border-[var(--border-color)]">
           <button
             onClick={() => setSelectedCategory(null)}
@@ -202,7 +204,7 @@ export default function SuziPunchListPanel({
           >
             All
           </button>
-          {categories.map((cat) => {
+          {activeCategories.map((cat) => {
             const count = categoryCounts[cat] || 0;
             return (
               <button

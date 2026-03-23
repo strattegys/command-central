@@ -524,8 +524,8 @@ function ChatPage() {
           </button>
           <div className="relative shrink-0">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
-              style={{ background: agent.color }}
+              className={`w-8 h-8 rounded-full flex items-center justify-center overflow-hidden${ttsSpeaking && activeAgent === "suzi" ? " animate-pulse" : ""}`}
+              style={{ background: agent.color, boxShadow: ttsSpeaking && activeAgent === "suzi" ? `0 0 12px ${agent.color}` : "none" }}
             >
               {agent.avatar && (
                 <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover absolute inset-0"
