@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
           return new NextResponse(data, {
             headers: {
               "Content-Type": contentType,
-              "Cache-Control": "no-cache",
+              "Cache-Control": "no-store",
             },
           });
         } catch {
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(svg, {
       headers: {
         "Content-Type": "image/svg+xml",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-store",
       },
     });
   } catch {
