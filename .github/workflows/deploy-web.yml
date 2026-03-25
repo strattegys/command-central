@@ -62,6 +62,15 @@ jobs:
             exit 1
           fi
 
+          # Caddy must bind :80/:443. Host nginx/apache from the legacy stack often still holds them (deploy then fails with "address already in use").
+          for svc in nginx apache2; do
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+              echo "Stopping host $svc so Docker Caddy can bind ports 80/443..."
+              systemctl stop "$svc"
+              systemctl disable "$svc" 2>/dev/null || true
+            fi
+          done
+
           # Build and restart containers
           echo "Building Docker images..."
           docker compose build --no-cache web
