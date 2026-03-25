@@ -3,12 +3,14 @@
 #
 # Optional environment variables:
 #   $env:CRM_TUNNEL_LOCAL_PORT  (default 5433)
+#   $env:CRM_TUNNEL_BIND        (default 0.0.0.0 - Docker Desktop reaches tunnel via host.docker.internal)
 #   $env:CRM_SSH_HOST           (default 137.184.187.233)
 #   $env:CRM_SSH_USER           (default root)
 #   $env:SSH_IDENTITY_FILE      explicit key path (overrides auto-detect)
 
 $ErrorActionPreference = "Stop"
 
+$tunnelBind = if ($env:CRM_TUNNEL_BIND) { $env:CRM_TUNNEL_BIND } else { "0.0.0.0" }
 $localPort = if ($env:CRM_TUNNEL_LOCAL_PORT) { $env:CRM_TUNNEL_LOCAL_PORT } else { "5433" }
 $remoteHost = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { "137.184.187.233" }
 $remoteUser = if ($env:CRM_SSH_USER) { $env:CRM_SSH_USER } else { "root" }
@@ -27,20 +29,20 @@ if ($env:SSH_IDENTITY_FILE -and (Test-Path -LiteralPath $env:SSH_IDENTITY_FILE))
   }
 }
 
-Write-Host "CRM DB tunnel: 127.0.0.1:$localPort -> ${remoteHost}:5432 (Postgres on server)"
+Write-Host "CRM DB tunnel: ${tunnelBind}:$localPort -> ${remoteHost}:5432 (Postgres on server)"
 Write-Host "Keep this window open. In web/.env.local: CRM_DB_PORT=$localPort  (+ CRM_DB_PASSWORD)"
 if ($identity) {
   Write-Host "SSH identity: $identity"
 } else {
-  Write-Host "SSH identity: (none — using ssh default / agent)"
+  Write-Host "SSH identity: (none - using ssh default / agent)"
 }
 Write-Host ""
 
-# Do not use $args — it is a PowerShell automatic variable and breaks some callers.
+# Do not use $args - it is a PowerShell automatic variable and breaks some callers.
 $sshArguments = @()
 if ($identity) {
   $sshArguments += "-i", $identity
 }
-$sshArguments += "-N", "-L", "${localPort}:localhost:5432", "${remoteUser}@${remoteHost}"
+$sshArguments += "-N", "-L", "${tunnelBind}:${localPort}:localhost:5432", "${remoteUser}@${remoteHost}"
 
 & ssh @sshArguments

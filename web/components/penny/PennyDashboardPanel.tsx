@@ -88,26 +88,29 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header with tabs — v2 layout */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className="text-xs font-semibold px-2 py-1 rounded transition-colors flex items-center gap-1.5"
-            style={{
-              color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
-              background: tab === t.key ? "var(--bg-tertiary)" : "transparent",
-            }}
-          >
-            {t.label}
-            {t.count && (
-              <span style={{ color: "var(--text-tertiary)" }} className="text-[10px] font-bold">
-                {t.count}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Header with tabs — match Suzi sub-tabs: low contrast, text-weight only for active */}
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+        {TABS.map((t) => {
+          const isActive = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1 ${
+                isActive
+                  ? "font-semibold text-[var(--text-primary)]"
+                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              {t.label}
+              {t.count != null && (
+                <span className="text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab content */}
@@ -136,14 +139,14 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                 className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)]"
               >
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  <span className="text-xs font-semibold text-[var(--text-primary)]">
                     {t.label}
                   </span>
                   <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
                     {t.id}
                   </span>
                 </div>
-                <p className="text-xs text-[var(--text-secondary)] mb-2">
+                <p className="text-[11px] text-[var(--text-secondary)] mb-2 leading-relaxed">
                   {t.description}
                 </p>
                 <div className="space-y-1">
@@ -152,7 +155,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                       key={i}
                       className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#E67E22] shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-40" />
                       <span className="text-[var(--text-secondary)]">{d.label}</span>
                       <span className="ml-auto">{d.targetCount} items</span>
                       <span className="text-[var(--text-tertiary)]">{d.ownerAgent}</span>
@@ -179,12 +182,12 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
           {/* Draft column — 40% */}
           <div className="flex flex-col border-r border-[var(--border-color)]" style={{ width: "40%" }}>
             <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#6b8a9e" }} />
-              <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-50" />
+              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                 Draft
               </span>
               {draftPackages.length > 0 && (
-                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{draftPackages.length}</span>
+                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">{draftPackages.length}</span>
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
@@ -203,12 +206,12 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
           {/* Testing column — 60% */}
           <div className="flex flex-col" style={{ width: "60%" }}>
             <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#D4A017" }} />
-              <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-70" />
+              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                 Testing
               </span>
               {testingPackages.length > 0 && (
-                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{testingPackages.length}</span>
+                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">{testingPackages.length}</span>
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-1.5">
@@ -223,23 +226,23 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                     <PackageDetailCard pkg={pkg} />
 
                     {/* Tasks + Logs side by side */}
-                    <div className="flex gap-1.5 min-h-[300px]">
+                    <div className="flex gap-1.5 min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0">
                       {/* Tasks — left 60% */}
-                      <div style={{ width: "60%" }} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col">
-                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)]">
-                          <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">Tasks</span>
+                      <div style={{ width: "60%" }} className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col">
+                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                          <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">Tasks</span>
                         </div>
-                        <div className="flex-1 overflow-hidden">
+                        <div className="flex-1 min-h-0 overflow-hidden">
                           <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" compact />
                         </div>
                       </div>
 
-                      {/* Logs — right 40% */}
-                      <div style={{ width: "40%" }} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col">
-                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)]">
-                          <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">Logs</span>
+                      {/* Logs — right 40% (newest first; scroll for history) */}
+                      <div style={{ width: "40%" }} className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col">
+                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                          <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">Logs</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-2">
+                        <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-0">
                           <SimLogViewer packageId={pkg.id} />
                         </div>
                       </div>
@@ -255,7 +258,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   );
 }
 
-/** Reads simLog from sessionStorage for a given packageId */
+/** Reads simLog from sessionStorage (newest-first). Refreshes on panelBus + interval. */
 function SimLogViewer({ packageId }: { packageId: string }) {
   const [log, setLog] = useState<string[]>([]);
 
@@ -264,25 +267,36 @@ function SimLogViewer({ packageId }: { packageId: string }) {
       try {
         const saved = sessionStorage.getItem(`simLog-${packageId}`);
         if (saved) setLog(JSON.parse(saved));
-      } catch {}
+      } catch {
+        setLog([]);
+      }
     };
     read();
-    const iv = setInterval(read, 2000);
-    return () => clearInterval(iv);
+    const unsub = panelBus.on("sim_log", read);
+    const iv = setInterval(read, 4000);
+    return () => {
+      unsub();
+      clearInterval(iv);
+    };
   }, [packageId]);
 
   if (log.length === 0) {
     return (
-      <div className="text-[10px] text-[var(--text-tertiary)] text-center py-4">
-        No logs yet — start a test to see activity
+      <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-2">
+        <p className="text-[10px] text-[var(--text-tertiary)] text-center py-4">
+          No logs yet — start a test to see activity
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-0.5">
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-2 space-y-0.5">
       {log.map((line, i) => (
-        <div key={i} className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
+        <div
+          key={`${i}-${line.slice(0, 64)}`}
+          className="text-[10px] text-[var(--text-tertiary)] font-mono leading-relaxed break-words"
+        >
           {line}
         </div>
       ))}

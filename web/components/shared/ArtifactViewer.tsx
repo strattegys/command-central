@@ -40,6 +40,11 @@ interface ArtifactViewerProps {
   agentId?: string;
   /** If set, show a Submit button that resolves the active task then closes */
   onSubmitTask?: () => Promise<void>;
+  /**
+   * When true with workflowId, load every artifact in the workflow (all items, full history).
+   * Use for package-card Inspect — person-type workflows default to a people table without this.
+   */
+  allWorkflowArtifacts?: boolean;
   onClose: () => void;
 }
 
@@ -64,9 +69,11 @@ export default function ArtifactViewer({
   title,
   agentId,
   onSubmitTask,
+  allWorkflowArtifacts = false,
   onClose,
 }: ArtifactViewerProps) {
   const isPerson = itemType === "person";
+  const usePeopleView = isPerson && !allWorkflowArtifacts;
 
   // Content mode state
   const [artifacts, setArtifacts] = useState<Artifact[]>(preloaded ? [preloaded] : []);
@@ -81,6 +88,7 @@ export default function ArtifactViewer({
 
   const [loading, setLoading] = useState(!preloaded);
   const [uploading, setUploading] = useState(false);
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Upload featured image → strattegys, then update frontmatter
@@ -211,7 +219,7 @@ export default function ArtifactViewer({
     if (preloaded) return;
     if (!workflowId && !workflowItemId) return;
 
-    if (isPerson && workflowId) {
+    if (usePeopleView && workflowId) {
       // Fetch people for this workflow — API returns title (name) and subtitle (job title)
       fetch(`/api/crm/workflow-items?workflowId=${workflowId}`)
         .then((r) => r.json())
@@ -250,13 +258,13 @@ export default function ArtifactViewer({
         })
         .catch(() => setLoading(false));
     }
-  }, [workflowItemId, workflowId, preloaded, isPerson]);
+  }, [workflowItemId, workflowId, preloaded, usePeopleView]);
 
   const active = artifacts[activeIdx];
 
   // Person mode: group by stage
-  const personStages = isPerson ? [...new Set(people.map((p) => p.stage))] : [];
-  const filteredPeople = isPerson ? people.filter((p) => p.stage === activeStage) : [];
+  const personStages = usePeopleView ? [...new Set(people.map((p) => p.stage))] : [];
+  const filteredPeople = usePeopleView ? people.filter((p) => p.stage === activeStage) : [];
 
   return (
     <div
@@ -265,7 +273,7 @@ export default function ArtifactViewer({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div style={{ width: !isPerson && active ? 980 : 520 }} className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div style={{ width: !usePeopleView && active ? 980 : 520 }} className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-color)]">
           <div className="flex items-center gap-3">
@@ -278,7 +286,7 @@ export default function ArtifactViewer({
               strokeWidth="2"
               strokeLinecap="round"
             >
-              {isPerson ? (
+              {usePeopleView ? (
                 <>
                   <circle cx="12" cy="7" r="4" />
                   <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
@@ -291,11 +299,11 @@ export default function ArtifactViewer({
               )}
             </svg>
             <span className="text-sm font-bold text-[var(--text-primary)]">
-              {isPerson ? "People Pipeline" : (title || active?.name || "Artifacts")}
+              {usePeopleView ? "People Pipeline" : (title || active?.name || "Artifacts")}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {!isPerson && active && !isEditing && (
+            {!usePeopleView && active && !isEditing && (
               <button
                 onClick={handleStartEdit}
                 className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-semibold hover:bg-[var(--border-color)] transition-colors"
@@ -342,13 +350,21 @@ export default function ArtifactViewer({
             </button>
             {onSubmitTask && (
               <button
+                type="button"
+                disabled={taskSubmitting}
                 onClick={async () => {
-                  await onSubmitTask();
-                  onClose();
+                  if (taskSubmitting) return;
+                  setTaskSubmitting(true);
+                  try {
+                    await onSubmitTask();
+                    onClose();
+                  } finally {
+                    setTaskSubmitting(false);
+                  }
                 }}
-                className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors font-semibold"
+                className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors font-semibold disabled:opacity-50 disabled:pointer-events-none"
               >
-                Submit
+                {taskSubmitting ? "Submitting…" : "Submit"}
               </button>
             )}
           </div>
@@ -364,7 +380,7 @@ export default function ArtifactViewer({
         </div>
 
         {/* Tab bar */}
-        {isPerson ? (
+        {usePeopleView ? (
           personStages.length > 1 && (
             <div className="flex gap-1 px-5 py-2 border-b border-[var(--border-color)] overflow-x-auto shrink-0" style={{ scrollbarWidth: "none" }}>
               {personStages.map((stage) => {
@@ -392,13 +408,22 @@ export default function ArtifactViewer({
                 <button
                   key={a.id}
                   onClick={() => setActiveIdx(i)}
-                  className={`text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap transition-colors shrink-0 ${
+                  className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[140px] ${
                     i === activeIdx
                       ? "bg-[var(--accent-green)] text-white font-semibold"
                       : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
-                  {a.name}
+                  {allWorkflowArtifacts ? (
+                    <span className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-[9px] uppercase tracking-wide opacity-80 truncate">{a.stage}</span>
+                      <span className="font-medium leading-tight line-clamp-2 break-words whitespace-normal">
+                        {a.name}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="whitespace-nowrap truncate block max-w-[200px]">{a.name}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -408,12 +433,12 @@ export default function ArtifactViewer({
         {/* Content — artifact left, chat right */}
         <div className="flex-1 min-h-0 flex flex-row">
           {/* Artifact content */}
-          <div className="overflow-y-auto px-5 py-4" style={!isPerson && active ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" } : { flex: 1 }}>
+          <div className="overflow-y-auto px-5 py-4" style={!usePeopleView && active ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" } : { flex: 1 }}>
             {loading ? (
               <div className="text-center text-[var(--text-tertiary)] py-8">
                 Loading...
               </div>
-            ) : isPerson ? (
+            ) : usePeopleView ? (
               filteredPeople.length === 0 ? (
                 <div className="text-center text-[var(--text-tertiary)] py-8">
                   No people at this stage
@@ -470,7 +495,7 @@ export default function ArtifactViewer({
           </div>
 
           {/* Agent chat sidebar */}
-          {!isPerson && active && (
+          {!usePeopleView && active && (
             <div style={{ width: 360 }} className="shrink-0 flex flex-col">
               {/* Agent header */}
               {(() => {
@@ -528,16 +553,32 @@ export default function ArtifactViewer({
         </div>
 
         {/* Footer */}
-        {isPerson ? (
+        {usePeopleView ? (
           <div className="px-5 py-2.5 border-t border-[var(--border-color)] text-[10px] text-[var(--text-tertiary)]">
             {people.length} total people across {personStages.length} stages
           </div>
         ) : active ? (
-          <div className="px-5 py-2.5 border-t border-[var(--border-color)] flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
+          <div className="px-5 py-2.5 border-t border-[var(--border-color)] flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)] flex-wrap">
             <span>
               Created: {new Date(active.createdAt).toLocaleString()}
+              {allWorkflowArtifacts && active.workflowItemId ? (
+                <span className="text-[var(--text-tertiary)]/80"> · item {active.workflowItemId.slice(0, 8)}…</span>
+              ) : null}
             </span>
-            <span className="uppercase">{active.type}</span>
+            <span
+              className={`shrink-0 text-right min-w-0 ${allWorkflowArtifacts ? "flex flex-col items-end gap-0.5" : "uppercase"}`}
+            >
+              {allWorkflowArtifacts ? (
+                <>
+                  <span className="uppercase text-[9px] opacity-80">{active.stage}</span>
+                  <span className="normal-case">{active.type}</span>
+                </>
+              ) : (
+                <span className="uppercase">
+                  {active.stage} · {active.type}
+                </span>
+              )}
+            </span>
           </div>
         ) : null}
       </div>

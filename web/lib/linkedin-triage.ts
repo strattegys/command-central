@@ -2,9 +2,9 @@
  * LinkedIn message triage via Tim's AI.
  * Tim analyzes the sender (CRM person summary, workflow context) and suggests a reply.
  */
-import { chat } from "./gemini";
 import { dirname } from "path";
 import { getAgentConfig } from "./agent-config";
+import { agentChat } from "./agent-llm";
 
 export interface TriageResult {
   personSummary: string;
@@ -59,7 +59,7 @@ export async function triageLinkedInMessage(
 
   try {
     const response = await Promise.race([
-      chat("tim", prompt, { sessionFile: getTriageSessionFile() }),
+      agentChat("tim", prompt, { sessionFile: getTriageSessionFile() }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Triage timeout")), TRIAGE_TIMEOUT_MS)
       ),
@@ -124,7 +124,7 @@ export async function triageNewConnection(
 
   try {
     const response = await Promise.race([
-      chat("tim", prompt, { sessionFile: getTriageSessionFile() }),
+      agentChat("tim", prompt, { sessionFile: getTriageSessionFile() }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Triage timeout")), TRIAGE_TIMEOUT_MS)
       ),

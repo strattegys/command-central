@@ -4,6 +4,9 @@ import Credentials from "next-auth/providers/credentials";
 // Temporary: skip Google OAuth, use open access
 // TODO: Add Google OAuth provider when credentials are ready
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Required behind Caddy / any reverse proxy: Auth.js validates Host before our middleware runs getSession().
+  trustHost: true,
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   providers: [
     Credentials({
       name: "Open Access",

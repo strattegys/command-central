@@ -138,7 +138,7 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
   },
 
   "scout-daily-research": () => async () => {
-    const { autonomousChat } = await import("./gemini");
+    const { agentAutonomousChat } = await import("./agent-llm");
     const { query: dbQuery } = await import("./db");
 
     // Check for DISCOVERED items across Scout's research-pipeline workflows
@@ -193,7 +193,7 @@ For each target:
 Summarize your findings for each target.`;
 
     console.log(`[cron] Scout daily research: processing ${items.length} target(s)`);
-    await autonomousChat("scout", prompt);
+    await agentAutonomousChat("scout", prompt);
   },
 };
 

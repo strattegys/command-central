@@ -472,9 +472,9 @@ export async function runTimHeartbeat(
   console.log("[heartbeat] Starting autonomous LLM execution...");
 
   try {
-    const { autonomousChat } = await import("./gemini");
+    const { agentAutonomousChat } = await import("./agent-llm");
     const prompt = buildAutonomousPrompt(newFindings);
-    const response = await autonomousChat("tim", prompt);
+    const response = await agentAutonomousChat("tim", prompt);
 
     if (response) {
       console.log("[heartbeat] Autonomous execution complete, response saved to session");
@@ -539,7 +539,7 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
   }
 
   try {
-    const { autonomousChat } = await import("./gemini");
+    const { agentAutonomousChat } = await import("./agent-llm");
     const reminderList = newReminders
       .map((r) => `- ${r}`)
       .join("\n");
@@ -554,7 +554,7 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
       `Deliver these reminders to Govind in a friendly way. Then mark them as delivered by updating your memory — remove the delivered reminder lines using the memory replace command.`,
     ].join("\n");
 
-    await autonomousChat(agentId, prompt);
+    await agentAutonomousChat(agentId, prompt);
 
     writeNotification(
       `${agentId} Reminders`,
@@ -599,7 +599,7 @@ async function runSuziDbHeartbeat(): Promise<void> {
       deliveredReminders.add(`suzi:${r.id}`);
     }
 
-    const { autonomousChat } = await import("./gemini");
+    const { agentAutonomousChat } = await import("./agent-llm");
     const reminderList = newDue
       .map((r) => {
         const dueDate = r.nextDueAt
@@ -623,16 +623,7 @@ async function runSuziDbHeartbeat(): Promise<void> {
       `Deliver these reminders to Govind in a friendly, warm way. These have already been automatically marked as delivered in the database — no need to update memory.`,
     ].join("\n");
 
-    const suziConfig = getAgentConfig("suzi");
-    if (suziConfig.provider === "anthropic") {
-      const { autonomousChatAnthropic } = await import("./anthropic-chat");
-      await autonomousChatAnthropic("suzi", prompt);
-    } else if (suziConfig.provider === "groq") {
-      const { autonomousChatGroq } = await import("./groq-chat");
-      await autonomousChatGroq("suzi", prompt);
-    } else {
-      await autonomousChat("suzi", prompt);
-    }
+    await agentAutonomousChat("suzi", prompt);
 
     // Mark delivered in DB and advance recurring ones
     for (const r of newDue) {
@@ -709,14 +700,16 @@ export async function runScoutHeartbeat(): Promise<void> {
     `[heartbeat] Scout processing ${pending.length} task(s)`
   );
 
-  const { autonomousChat } = await import("./gemini");
+  const { agentAutonomousChat } = await import("./agent-llm");
 
   for (const task of pending) {
     try {
       updateTask(task.id, { status: "in_progress" });
       console.log(`[heartbeat] Scout working on: ${task.task.slice(0, 80)}`);
 
-      const result = await autonomousChat("scout", task.task, { fromAgent: task.from });
+      const result = await agentAutonomousChat("scout", task.task, {
+        fromAgent: task.from,
+      });
 
       updateTask(task.id, {
         status: "completed",

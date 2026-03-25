@@ -131,7 +131,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
       const form = new FormData();
       form.append("file", new File([compressed], `${agent.id}-avatar.png`, { type: "image/png" }));
       form.append("agentId", agent.id);
-      const res = await fetch("/api/agent-avatar", { method: "POST", body: form });
+      const res = await fetch("/api/agent-avatar", { method: "POST", credentials: "include", body: form });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
         alert(`Upload failed: ${err.error || "Unknown error"}`);

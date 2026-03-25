@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
+import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifact";
 import { createTask } from "@/lib/tasks";
 
 /**
@@ -48,7 +49,10 @@ export async function POST(req: NextRequest) {
     // skipTasks: just move stage, don't create workflows/tasks
     if (skipTasks) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
-      return NextResponse.json({ ok: true, packageId, workflows: [] });
+      const activationLog = [
+        `[${new Date().toISOString()}] Testing mode: stage → ${targetStage}, no workflows created (skipTasks)`,
+      ];
+      return NextResponse.json({ ok: true, packageId, workflows: [], activationLog });
     }
 
     // Always store useFakeData flag on the package so resolve handler can read it
@@ -66,10 +70,18 @@ export async function POST(req: NextRequest) {
     );
     if (existingWfs.length > 0) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
+      const activationLog = [
+        `[${new Date().toISOString()}] Re-activate: ${existingWfs.length} existing workflow(s), stage → ${targetStage}`,
+        ...existingWfs.map(
+          (w) =>
+            `[${new Date().toISOString()}]   → ${w.name} (${w.ownerAgent}) id ${w.id.slice(0, 8)}…`
+        ),
+      ];
       return NextResponse.json({
         ok: true,
         packageId,
         workflows: existingWfs.map(w => ({ workflowId: w.id, boardId: "", label: w.name, ownerAgent: w.ownerAgent })),
+        activationLog,
       });
     }
 
@@ -82,14 +94,22 @@ export async function POST(req: NextRequest) {
     }
 
     const createdWorkflows: Array<{ workflowId: string; boardId: string; label: string; ownerAgent: string }> = [];
+    const activationLog: string[] = [];
+    const logAct = (line: string) => {
+      activationLog.push(`[${new Date().toISOString()}] ${line}`);
+    };
+    logAct(`Activate: package "${pkg.name}" (${packageId.slice(0, 8)}…) → ${targetStage}, useFakeData=${useFakeData}`);
 
     // 2-4. For each deliverable, create board + workflow + initial item
     for (const deliverable of deliverables) {
       const wfType = WORKFLOW_TYPES[deliverable.workflowType];
       if (!wfType) {
         console.warn(`[activate] Unknown workflow type: ${deliverable.workflowType}`);
+        logAct(`SKIP deliverable "${deliverable.label}": unknown workflowType ${deliverable.workflowType}`);
         continue;
       }
+
+      logAct(`Deliverable "${deliverable.label}" → type ${deliverable.workflowType}, owner ${deliverable.ownerAgent}, targetCount ${deliverable.targetCount}`);
 
       // 2. Create the board from the template
       const boardRows = await query<{ id: string }>(
@@ -104,6 +124,9 @@ export async function POST(req: NextRequest) {
         ]
       );
       const boardId = (boardRows[0] as Record<string, unknown>).id as string;
+      logAct(`Board created: ${boardId.slice(0, 8)}… (${deliverable.label})`);
+
+      const firstStage = wfType.defaultBoard.stages[0];
 
       // 3. Create the workflow
       const wfRows = await query<{ id: string }>(
@@ -120,10 +143,9 @@ export async function POST(req: NextRequest) {
         ]
       );
       const workflowId = (wfRows[0] as Record<string, unknown>).id as string;
+      logAct(`Workflow created: ${workflowId.slice(0, 8)}… firstStage=${firstStage.key}`);
 
       // 4. Create initial workflow item(s) at the first stage
-      const firstStage = wfType.defaultBoard.stages[0];
-
       if (wfType.itemType === "content") {
         // Create a content item and link it
         const ciRows = await query<{ id: string }>(
@@ -156,11 +178,17 @@ export async function POST(req: NextRequest) {
           ["Next", "Contact", "Warm outreach — awaiting contact details"]
         );
         const personId = (pRows[0] as Record<string, unknown>).id as string;
-        await query(
+        const wiRows = await query<{ id: string }>(
           `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
-           VALUES ($1, $2, 'person', $3, NOW(), NOW())`,
+           VALUES ($1, $2, 'person', $3, NOW(), NOW())
+           RETURNING id`,
           [workflowId, firstStage.key, personId]
         );
+        const itemId = (wiRows[0] as Record<string, unknown>).id as string;
+        if (deliverable.workflowType === "warm-outreach") {
+          await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
+          logAct(`Warm-outreach: item ${itemId.slice(0, 8)}… at ${firstStage.key}; PACKAGE_BRIEF if package has brief`);
+        }
       }
       // Other person-type workflows: items added by agents (e.g. Scout → Tim cold outreach)
 
@@ -203,16 +231,24 @@ export async function POST(req: NextRequest) {
         ].filter(Boolean).join("\n");
 
         createTask("penny", wf.ownerAgent, taskDescription, "async");
+        logAct(`Agent task queued: ${wf.ownerAgent} for workflow ${wf.workflowId.slice(0, 8)}… (${wf.label})`);
       }
     }
+
+    logAct(`Done: package stage=${targetStage}, ${createdWorkflows.length} workflow(s)`);
 
     return NextResponse.json({
       ok: true,
       packageId,
       workflows: createdWorkflows,
+      activationLog,
     });
   } catch (error) {
     console.error("[activate] error:", error);
-    return NextResponse.json({ error: "Failed to activate package" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      { error: "Failed to activate package", detail: msg, activationLog: [`[${new Date().toISOString()}] ERROR: ${msg}`] },
+      { status: 500 }
+    );
   }
 }

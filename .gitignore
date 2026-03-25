@@ -49,3 +49,10 @@ __pycache__/
 # NanoClaw legacy (deprecated)
 nanoclaw/
 **/nanoclaw/**
+
+# Docker bind-mount: uploaded agent photos (keep folder in git via .gitkeep)
+docker-data/agent-avatars/*
+!docker-data/agent-avatars/.gitkeep
+
+# Local dev: session JSONL / memory under agents/ (do not commit; prod uses host bind mount)
+agents/.*/

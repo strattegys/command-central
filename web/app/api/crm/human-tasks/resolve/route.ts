@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import Anthropic from "@anthropic-ai/sdk";
+import { groqCompletion } from "@/lib/groq-completion";
+import {
+  isUnipileConfigured,
+  extractLinkedInProfileIdentifier,
+  fetchUnipileLinkedInProfile,
+  formatUnipileProfileMarkdown,
+} from "@/lib/unipile-profile";
+import { sendWarmOutreachLinkedInDm } from "@/lib/unipile-send";
+import { extractPlainDmFromDraftMarkdown } from "@/lib/warm-outreach-draft";
+import { insertPackageBriefArtifactIfPresent, PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
+
+function logTs(message: string): string {
+  return `[${new Date().toISOString()}] ${message}`;
+}
 
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -169,11 +183,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         itemId,
+        packageId: wf.packageId,
         previousStage: item.stage,
         newStage: item.stage,
         action,
         terminal: true,
         handoffs,
+        logs: [logTs(`Terminal resolve (item removed): ${item.stage} action=${action}`)],
       });
     }
 
@@ -202,9 +218,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Activity log for the UI
+    // Activity log for the UI (Package Planner + task panel)
     const logs: string[] = [];
-    logs.push(`Task resolved: ${item.stage} → ${targetStage} (${action})`);
+    logs.push(
+      logTs(
+        `Resolve start: workflow="${wf.name}" type=${wfTypeId || "?"} item=${itemId.slice(0, 8)}… ${item.stage} → ${targetStage} action=${action}`
+      )
+    );
+
+    const artifactOverrides: Partial<Record<string, { name: string; content: string }>> = {};
+    if (wfTypeId === "warm-outreach" && action === "approve") {
+      if (item.stage === "MESSAGE_DRAFT" && targetStage === "MESSAGED") {
+        logs.push(logTs("LinkedIn: MESSAGE_DRAFT approved — attempting Unipile send before MESSAGED artifact"));
+        artifactOverrides.MESSAGED = await tryWarmOutreachSendOnApprove(itemId, "MESSAGE_DRAFT", logs);
+      } else if (item.stage === "REPLY_DRAFT" && targetStage === "REPLY_SENT") {
+        logs.push(logTs("LinkedIn: REPLY_DRAFT approved — attempting Unipile send before REPLY_SENT artifact"));
+        artifactOverrides.REPLY_SENT = await tryWarmOutreachSendOnApprove(itemId, "REPLY_DRAFT", logs);
+      }
+    }
 
     // 4. Advance the item (clear follow-up due date when continuing warm sequence)
     if (
@@ -224,9 +255,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Auto-generate artifacts for agent-owned stages
-    logs.push(`Generating artifact for ${targetStage}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
-    await generateStageArtifact(itemId, item.workflowId, targetStage, wfType, wf.name, useFakeData);
-    logs.push(`✓ Artifact created for ${targetStage}`);
+    logs.push(
+      logTs(`Artifact: generating ${targetStage}${useFakeData ? " (template/fake)" : " (LLM where configured)"}…`)
+    );
+    await generateStageArtifact(
+      itemId,
+      item.workflowId,
+      targetStage,
+      wfType,
+      wf.name,
+      useFakeData,
+      artifactOverrides
+    );
+    logs.push(logTs(`Artifact: done for ${targetStage}`));
 
     // 5b. Auto-publish to Beehiiv when entering DRAFT_PUBLISHED (content-pipeline)
     if (targetStage === "DRAFT_PUBLISHED" && wfTypeId === "content-pipeline") {
@@ -261,12 +302,12 @@ export async function POST(req: NextRequest) {
         if (visited.has(nextStageKey)) break;
         visited.add(nextStageKey);
         autoAdvances.push(`${currentStage} → ${nextStageKey}`);
-        logs.push(`Auto-advancing: ${currentStage} → ${nextStageKey}`);
+        logs.push(logTs(`Auto-advance: ${currentStage} → ${nextStageKey}`));
 
         // Generate artifact for the current agent stage
-        logs.push(`Generating artifact for ${currentStage}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
-        await generateStageArtifact(itemId, item.workflowId, currentStage, wfType, wf.name, useFakeData);
-        logs.push(`✓ Artifact created for ${currentStage}`);
+        logs.push(logTs(`Artifact: generating ${currentStage} (pre-step)…`));
+        await generateStageArtifact(itemId, item.workflowId, currentStage, wfType, wf.name, useFakeData, {});
+        logs.push(logTs(`Artifact: done ${currentStage} (pre-step)`));
 
         // Advance
         await query(
@@ -275,9 +316,9 @@ export async function POST(req: NextRequest) {
         );
 
         // Generate artifact for the new stage too
-        logs.push(`Generating artifact for ${nextStageKey}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
-        await generateStageArtifact(itemId, item.workflowId, nextStageKey, wfType, wf.name, useFakeData);
-        logs.push(`✓ Artifact created for ${nextStageKey}`);
+        logs.push(logTs(`Artifact: generating ${nextStageKey} (post-step)…`));
+        await generateStageArtifact(itemId, item.workflowId, nextStageKey, wfType, wf.name, useFakeData, {});
+        logs.push(logTs(`Artifact: done ${nextStageKey} (post-step)`));
 
         currentStage = nextStageKey;
         finalStage = nextStageKey;
@@ -304,7 +345,7 @@ export async function POST(req: NextRequest) {
           `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
           ["MESSAGE_DRAFT", itemId]
         );
-        await generateStageArtifact(itemId, item.workflowId, "MESSAGE_DRAFT", wfType, wf.name, useFakeData);
+        await generateStageArtifact(itemId, item.workflowId, "MESSAGE_DRAFT", wfType, wf.name, useFakeData, {});
         finalStage = "MESSAGE_DRAFT";
         autoAdvances.push(`MESSAGED → MESSAGE_DRAFT (message ${messageCount + 1}/3)`);
       }
@@ -327,7 +368,7 @@ export async function POST(req: NextRequest) {
         `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
         ["REPLY_DRAFT", itemId]
       );
-      await generateStageArtifact(itemId, item.workflowId, "REPLY_DRAFT", wfType, wf.name, useFakeData);
+      await generateStageArtifact(itemId, item.workflowId, "REPLY_DRAFT", wfType, wf.name, useFakeData, {});
       finalStage = "REPLY_DRAFT";
       autoAdvances.push("REPLY_SENT → REPLY_DRAFT");
     }
@@ -352,6 +393,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       itemId,
+      packageId: wf.packageId,
       previousStage: item.stage,
       newStage: finalStage,
       action,
@@ -361,7 +403,16 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("[resolve] error:", error);
-    return NextResponse.json({ error: "Failed to resolve task" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      {
+        error: "Failed to resolve task",
+        detail: msg,
+        packageId: null,
+        logs: [logTs(`ERROR: ${msg}`)],
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -376,6 +427,12 @@ async function spawnNextWarmOutreachItem(
   );
   const n = parseInt(cntRows[0]?.c || "0", 10);
   if (n >= targetCount) return null;
+
+  const wfRows = await query<{ packageId: string | null }>(
+    `SELECT "packageId" FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  const packageId = wfRows[0]?.packageId ?? null;
 
   const pRows = await query<{ id: string }>(
     `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
@@ -392,7 +449,11 @@ async function spawnNextWarmOutreachItem(
      RETURNING id`,
     [workflowId, personId]
   );
-  return ins[0]?.id ?? null;
+  const itemId = ins[0]?.id ?? null;
+  if (!itemId) return null;
+
+  await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
+  return itemId;
 }
 
 /**
@@ -729,6 +790,275 @@ async function autoAdvanceItem(
   return currentStage;
 }
 
+async function getWarmContactNotes(itemId: string): Promise<string> {
+  const rows = await query<{ content: string }>(
+    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'AWAITING_CONTACT' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+    [itemId]
+  );
+  return rows[0]?.content?.trim() || "";
+}
+
+/** PACKAGE_BRIEF artifact first, else live `spec.brief` from the package row. */
+async function getWarmPackageBriefForItem(itemId: string): Promise<string> {
+  const art = await query<{ content: string }>(
+    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+    [itemId, PACKAGE_BRIEF_STAGE]
+  );
+  const fromArtifact = art[0]?.content?.trim();
+  if (fromArtifact) return fromArtifact;
+
+  const pkgRows = await query<{ brief: string | null }>(
+    `SELECT (pkg.spec->>'brief') AS brief
+     FROM "_workflow_item" wi
+     INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+     LEFT JOIN "_package" pkg ON pkg.id = w."packageId" AND pkg."deletedAt" IS NULL
+     WHERE wi.id = $1 AND wi."deletedAt" IS NULL`,
+    [itemId]
+  );
+  const raw = (pkgRows[0]?.brief || "").trim();
+  return raw;
+}
+
+/** LinkedIn slug / provider id from CRM person row linked to this workflow item. */
+async function getWarmLinkedInIdentifierFromPerson(itemId: string): Promise<string | null> {
+  const rows = await query<{ linkedinUrl: string | null }>(
+    `SELECT p."linkedinLinkPrimaryLinkUrl" AS "linkedinUrl"
+     FROM "_workflow_item" wi
+     INNER JOIN person p ON p.id = wi."sourceId" AND p."deletedAt" IS NULL
+     WHERE wi.id = $1 AND wi."sourceType" = 'person' AND wi."deletedAt" IS NULL`,
+    [itemId]
+  );
+  const url = rows[0]?.linkedinUrl?.trim();
+  if (!url) return null;
+  return extractLinkedInProfileIdentifier(url);
+}
+
+/** Suppress accidental double-submit (double-click, duplicate POST) within a short window. */
+const warmSendDedup = new Map<string, number>();
+const WARM_SEND_DEDUP_MS = 20_000;
+
+function warmSendDedupKey(itemId: string, plain: string): string {
+  const norm = plain.replace(/\s+/g, " ").trim().slice(0, 800);
+  return `${itemId}|${norm}`;
+}
+
+async function tryWarmOutreachSendOnApprove(
+  itemId: string,
+  fromStage: "MESSAGE_DRAFT" | "REPLY_DRAFT",
+  logs: string[]
+): Promise<{ name: string; content: string }> {
+  const draftRows = await query<{ content: string }>(
+    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+    [itemId, fromStage]
+  );
+  const draftMd = draftRows[0]?.content || "";
+  const plain = extractPlainDmFromDraftMarkdown(draftMd);
+
+  const dedupKey = warmSendDedupKey(itemId, plain);
+  const now = Date.now();
+  const last = warmSendDedup.get(dedupKey);
+  if (last != null && now - last < WARM_SEND_DEDUP_MS) {
+    logs.push(
+      logTs(
+        "LinkedIn: skipped duplicate send (same item + body within 20s — double-click or retry)"
+      )
+    );
+    return {
+      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM — duplicate suppressed" : "LinkedIn reply — duplicate suppressed",
+      content: `# Send not repeated\n\nA matching send was already attempted for this item within the last 20 seconds (duplicate request protection).\n\n**Draft:**\n\n\`\`\`\n${plain}\n\`\`\`\n\n---\n*If you need to resend, wait 20s or change the message text slightly.*`,
+    };
+  }
+
+  warmSendDedup.set(dedupKey, Date.now());
+
+  logs.push(
+    logTs(
+      `LinkedIn: extracted ${plain.length} characters of plain text from latest ${fromStage} artifact`
+    )
+  );
+
+  const notes = await getWarmContactNotes(itemId);
+  const recipient =
+    (await getWarmLinkedInIdentifierFromPerson(itemId)) ||
+    extractLinkedInProfileIdentifier(notes);
+
+  if (!recipient) {
+    warmSendDedup.delete(dedupKey);
+    logs.push(
+      logTs(
+        "LinkedIn: not sent — no recipient (person linkedinLinkPrimaryLinkUrl or LinkedIn URL / ACoA… in contact notes)"
+      )
+    );
+    return {
+      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM — not sent" : "LinkedIn reply — not sent",
+      content: `# Not sent\n\n**Reason:** No LinkedIn recipient could be resolved.\n\nAdd **linkedinLinkPrimaryLinkUrl** on the person in Twenty, or paste a \`linkedin.com/in/…\` URL or **ACoA…** provider id in Govind's contact notes.\n\n**Draft (copy/paste in LinkedIn):**\n\n\`\`\`\n${plain || "(empty)"}\n\`\`\`\n\n---\n*Unipile was not called.*`,
+    };
+  }
+
+  if (!isUnipileConfigured()) {
+    warmSendDedup.delete(dedupKey);
+    logs.push(logTs("LinkedIn: not sent — Unipile env vars missing (UNIPILE_API_KEY, UNIPILE_DSN, UNIPILE_ACCOUNT_ID)"));
+    return {
+      name: "LinkedIn — not sent",
+      content: `# Not sent (Unipile not configured)\n\nConfigure \`UNIPILE_API_KEY\`, \`UNIPILE_DSN\`, and \`UNIPILE_ACCOUNT_ID\` on the server (same as \`linkedin_unipile.sh\`).\n\n**Recipient resolved:** \`${recipient}\`\n\n**Draft:**\n\n\`\`\`\n${plain}\n\`\`\`\n\n---\n*Send manually from LinkedIn until Unipile is configured.*`,
+    };
+  }
+
+  logs.push(logTs(`LinkedIn: calling Unipile send for recipient "${recipient.slice(0, 56)}${recipient.length > 56 ? "…" : ""}"`));
+  const result = await sendWarmOutreachLinkedInDm(recipient, plain);
+  if (!result.ok) {
+    warmSendDedup.delete(dedupKey);
+  }
+  if (result.ok) {
+    logs.push(logTs(`LinkedIn: Unipile accepted request (HTTP ${result.httpStatus})`));
+    const bodyStr =
+      typeof result.body === "object"
+        ? JSON.stringify(result.body, null, 2).slice(0, 1800)
+        : String(result.body).slice(0, 1800);
+    return {
+      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM sent" : "LinkedIn reply sent",
+      content: `# Sent via Unipile\n\n**Channel:** LinkedIn DM\n**Recipient identifier:** \`${recipient}\`\n**HTTP:** ${result.httpStatus}\n\n**API response (excerpt):**\n\`\`\`json\n${bodyStr}\n\`\`\`\n\n---\n*Confirm delivery in LinkedIn if needed.*`,
+    };
+  }
+
+  logs.push(logTs(`LinkedIn: send FAILED — ${result.error}`));
+  return {
+    name: "LinkedIn — send failed",
+    content: `# Send failed\n\n**Error:** ${result.error}\n${result.httpStatus != null ? `**HTTP:** ${result.httpStatus}\n` : ""}\n**Recipient:** \`${recipient}\`\n\n**Draft (send manually):**\n\n\`\`\`\n${plain}\n\`\`\`\n\n---\n*Unipile rejected the request — check account session, provider id, and API credentials.*`,
+  };
+}
+
+function buildWarmResearchTail(
+  notes: string,
+  hasUnipileProfile: boolean,
+  packageBrief: string
+): string {
+  const profileLine = hasUnipileProfile
+    ? "- **Name / role / company:** Use the Unipile section above; confirm in LinkedIn UI before sending."
+    : "- **Name / role / company:** Pull from LinkedIn + notes above once a profile URL is available";
+  const briefLine = packageBrief.trim()
+    ? "- **Package brief:** Honor the outreach brief at the top of this item (or in the PACKAGE_BRIEF artifact) for tone, boundaries, and messaging."
+    : "- **Package brief:** None on file — use Govind's notes and Unipile only.";
+  return `### Profile (confirm when live)
+${profileLine}
+- **Recent activity:** Post themes, talks, company news (LinkedIn UI)
+- **Mutual connections:** …
+
+${briefLine}
+
+## Conversation starters
+- Ground every opener in specifics from Govind's notes, the package brief, and any Unipile headline/experience — not generic SaaS / influencer angles
+
+## Recommended angle
+Friend-to-friend, casual, direct — reference shared history where it fits; soft mention of vibe coding / AI agent work only if natural; **no** buzzword soup, **no** pricing, **no** strattegys.com links in the DM.
+
+---
+*Unipile: live profile when configured; Groq: synthesis when fake data is off*`;
+}
+
+async function generateWarmEnrichmentLLM(
+  notes: string,
+  workflowName: string,
+  linkedInUnipileContext: string,
+  packageBrief: string
+): Promise<string | null> {
+  const system = `You are Tim preparing warm LinkedIn outreach for Govind Davis. Govind personally knows the contact and submitted notes.
+
+The user message includes PACKAGE BRIEF (outreach/campaign mandates from the package card) and LINKEDIN (UNIPILE). Obey the package brief for tone, taboos, and positioning when it is present. Use Unipile data for facts (headline, roles, skills). If sections say none, rely on Govind's notes only.
+
+Write Markdown only (no duplicate raw dumps of the LinkedIn section). Start with exactly:
+
+## Tim — synthesis
+
+Then subsections:
+### Summary of Govind's notes
+### Conversation starters (specific to relationship + LinkedIn facts + package brief when present)
+### DM angle
+Friend-to-friend, no corporate pitch, no pricing, no strattegys.com link in the DM unless the package brief explicitly allows it.`;
+  const user = `Campaign / workflow: ${workflowName}
+
+PACKAGE BRIEF (outreach mandates — follow closely):
+${packageBrief || "(none)"}
+
+LINKEDIN (UNIPILE):
+${linkedInUnipileContext || "(none — not fetched, misconfigured, or no URL/slug)"}
+
+Contact notes from Govind:
+${notes || "(none)"}`;
+  return groqCompletion(system, user, { max_tokens: 2500, temperature: 0.35 });
+}
+
+async function generateWarmMessageDraftLLM(
+  notes: string,
+  enrichment: string,
+  seq: number,
+  workflowName: string,
+  packageBrief: string
+): Promise<string | null> {
+  const role =
+    seq === 1
+      ? "Opener (1/3): reconnect warmly, brief update on vibe coding/AI agent work if it fits, ask for intro or catch-up — no links, no pitch deck tone."
+      : seq === 2
+        ? "Bump (2/3): 2–4 sentences, reference something from enrichment or notes, no pressure."
+        : "Final nudge (3/3): 2–3 sentences, close the loop gracefully.";
+  const system = `You draft LinkedIn DMs for Govind Davis, first person as Govind. ${role}
+Honor the PACKAGE BRIEF in the user message for tone, boundaries, and what to emphasize.
+
+Output Markdown:
+# Warm DM — [label]
+
+(body — sign off as Govind)
+
+---
+*Tim — message ${seq} of 3*`;
+  const user = `Workflow: ${workflowName}
+
+PACKAGE BRIEF:
+${packageBrief || "(none)"}
+
+Enrichment report:
+${enrichment.slice(0, 8000)}
+
+Govind's raw notes:
+${notes || "(none)"}`;
+  return groqCompletion(system, user, { max_tokens: 1200, temperature: 0.45 });
+}
+
+async function generateWarmReplyDraftLLM(
+  notes: string,
+  enrichment: string,
+  threadSummary: string,
+  workflowName: string,
+  packageBrief: string
+): Promise<string | null> {
+  const system = `You draft LinkedIn DM replies for Govind Davis, first person as Govind. The contact has replied (warm thread). Match a natural, friendly tone — no corporate pitch, no pricing, no strattegys.com links unless they asked or the package brief allows.
+Honor the PACKAGE BRIEF for tone and boundaries.
+
+Output Markdown:
+# Reply — Ready for Review
+
+(body — sign off as Govind)
+
+---
+*Tim — approve to send via LinkedIn DM*`;
+  const user = `Workflow: ${workflowName}
+
+PACKAGE BRIEF:
+${packageBrief || "(none)"}
+
+Enrichment:
+${enrichment.slice(0, 6000)}
+
+Govind's original contact notes:
+${notes || "(none)"}
+
+Outbound thread so far (your prior messages / sends):
+${threadSummary || "(none yet)"}
+
+Draft the next reply Govind should send.`;
+  return groqCompletion(system, user, { max_tokens: 1200, temperature: 0.45 });
+}
+
 /**
  * Generate simulated artifacts when an item enters a new agent-owned stage.
  * In production, the actual agent would create these. For simulation/testing,
@@ -741,9 +1071,30 @@ async function generateStageArtifact(
   stage: string,
   wfType: any,
   workflowName: string,
-  useFakeData = true
+  useFakeData = true,
+  artifactOverrides: Partial<Record<string, { name: string; content: string }>> = {}
 ) {
   if (!wfType) return;
+
+  const customArtifact = artifactOverrides[stage];
+  if (customArtifact) {
+    const allowMultiple =
+      ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT"].includes(stage) ||
+      (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT"));
+    if (!allowMultiple) {
+      const existing = await query(
+        `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
+        [itemId, stage]
+      );
+      if (existing.length > 0) return;
+    }
+    await query(
+      `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+      [itemId, workflowId, stage, customArtifact.name, "markdown", customArtifact.content]
+    );
+    return;
+  }
 
   // Fetch the idea text if we're generating a campaign spec (to incorporate it)
   let ideaText = "";
@@ -804,30 +1155,152 @@ async function generateStageArtifact(
     // For other stages, fall through to fake data templates
   }
 
-  // Warm outreach: opener / bump / nudge message drafts (fake data)
-  if (wfType.id === "warm-outreach" && stage === "MESSAGE_DRAFT" && useFakeData) {
+  // Warm outreach: enrichment — Unipile LinkedIn profile + Govind notes + optional Groq synthesis
+  if (wfType?.id === "warm-outreach" && stage === "RESEARCHING") {
+    const existing = await query(
+      `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'RESEARCHING' AND "deletedAt" IS NULL`,
+      [itemId]
+    );
+    if (existing.length > 0) return;
+
+    const notes = await getWarmContactNotes(itemId);
+    const packageBrief = await getWarmPackageBriefForItem(itemId);
+    const fromPerson = await getWarmLinkedInIdentifierFromPerson(itemId);
+    const fromNotes = extractLinkedInProfileIdentifier(notes);
+    const linkedinIdentifier = fromPerson || fromNotes;
+
+    let unipileMarkdown = "";
+    let unipileStatus = "";
+
+    if (isUnipileConfigured() && linkedinIdentifier) {
+      console.log(
+        `[warm-outreach] Unipile profile fetch for item=${itemId} identifier=${linkedinIdentifier.slice(0, 64)}`
+      );
+      const raw = await fetchUnipileLinkedInProfile(linkedinIdentifier);
+      unipileMarkdown = formatUnipileProfileMarkdown(raw);
+    } else if (!linkedinIdentifier) {
+      unipileStatus =
+        "No LinkedIn profile reference found. Add linkedinLinkPrimaryLinkUrl on the person in Twenty (column person.linkedinLinkPrimaryLinkUrl), or paste a https://www.linkedin.com/in/… URL or ACoA… provider id in Govind's contact notes.";
+    } else {
+      unipileStatus =
+        "Unipile is not configured in this app. Set **UNIPILE_API_KEY**, **UNIPILE_DSN** (e.g. `api32.unipile.com:16299`), and **UNIPILE_ACCOUNT_ID** in the server environment — same as your `linkedin_unipile.sh` / production Unipile account.";
+    }
+
+    const notesBlock =
+      notes.trim().length > 0
+        ? notes.trim()
+        : "_No contact notes were captured on this item; add context in AWAITING_CONTACT or resubmit._";
+
+    const linkedinSection = unipileMarkdown.trim()
+      ? `## LinkedIn profile (Unipile)\n\n${unipileMarkdown}\n`
+      : `## LinkedIn (Unipile)\n\n_${unipileStatus || "Not fetched."}_\n`;
+
+    const forLlm =
+      unipileMarkdown.trim() ||
+      (unipileStatus ? `(Status) ${unipileStatus}` : "(none)");
+
+    let synthesis = "";
+    if (!useFakeData) {
+      synthesis =
+        (await generateWarmEnrichmentLLM(notes, workflowName, forLlm, packageBrief)) ||
+        `## Tim — synthesis (template)\n\n${buildWarmResearchTail(notes, Boolean(unipileMarkdown.trim()), packageBrief)}`;
+    } else {
+      synthesis = `## Tim — synthesis (fake data mode)\n\n${buildWarmResearchTail(notes, Boolean(unipileMarkdown.trim()), packageBrief)}`;
+    }
+
+    const content = `# Warm contact — enrichment report
+
+${linkedinSection}
+## What Govind provided
+
+${notesBlock}
+
+---
+
+${synthesis}`;
+
+    await insertArtifact(itemId, workflowId, stage, "Warm contact enrichment", content);
+    return;
+  }
+
+  // Warm outreach: opener / bump / nudge — always use warm templates (not linkedin cold MESSAGE_DRAFT map).
+  // When useFakeData is false, try Groq (GROQ_API_KEY); on missing key or failure, use templates with notes.
+  if (wfType?.id === "warm-outreach" && stage === "MESSAGE_DRAFT") {
     const draftRows = await query<{ id: string }>(
       `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
       [itemId]
     );
     const seq = Math.min(draftRows.length + 1, 3);
+    const notes = await getWarmContactNotes(itemId);
+    const packageBrief = await getWarmPackageBriefForItem(itemId);
+    const enrichRows = await query<{ content: string }>(
+      `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'RESEARCHING' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+      [itemId]
+    );
+    const enrichment = enrichRows[0]?.content || "";
+
+    if (!useFakeData) {
+      const llm = await generateWarmMessageDraftLLM(notes, enrichment, seq, workflowName, packageBrief);
+      if (llm) {
+        const names: Record<number, string> = {
+          1: "Warm LinkedIn DM — Opener (1/3)",
+          2: "Warm LinkedIn DM — Bump (2/3)",
+          3: "Warm LinkedIn DM — Final nudge (3/3)",
+        };
+        await insertArtifact(itemId, workflowId, stage, names[seq], llm);
+        return;
+      }
+    }
+
+    const notesBlock =
+      notes.trim().length > 0
+        ? `\n\n## Context from Govind\n\n${notes.trim()}\n`
+        : "\n\n_(No AWAITING_CONTACT notes on file — personalize manually.)_\n";
+    const briefBlock =
+      packageBrief.trim().length > 0
+        ? `\n\n## Package outreach brief\n\n${packageBrief.trim().slice(0, 4000)}\n`
+        : "";
+
     const warmDrafts: Record<number, { name: string; content: string }> = {
       1: {
         name: "Warm LinkedIn DM — Opener (1/3)",
-        content: `# Warm DM — Opener\n\nHey [Name] — good to reconnect. Quick update: I've been building out vibe coding and AI agent work for teams (shipping fast, Intuit-style timelines). If you know anyone who needs that kind of build, I'd love a intro — or happy to catch up if it's on your radar.\n\n— Govind\n\n---\n*Tim — message 1 of 3. Friend-to-friend tone per campaign brief. Send via LinkedIn DM only.*`,
+        content: `# Warm DM — Opener${briefBlock}${notesBlock}\nHey [Name] — good to reconnect. Quick update: I've been building out vibe coding and AI agent work for teams (shipping fast, Intuit-style timelines). If you know anyone who needs that kind of build, I'd love a intro — or happy to catch up if it's on your radar.\n\n— Govind\n\n---\n*Tim — message 1 of 3. Friend-to-friend tone per campaign brief. Send via LinkedIn DM only.*`,
       },
       2: {
         name: "Warm LinkedIn DM — Bump (2/3)",
-        content: `# Warm DM — Light follow-up\n\nBumping this — saw you posted about [topic from research]. Still around if a quick chat ever makes sense. No pressure.\n\n— Govind\n\n---\n*Tim — message 2 of 3. 2–4 sentences max.*`,
+        content: `# Warm DM — Light follow-up${briefBlock}${notesBlock}\nBumping this — tying back to what we talked about above / something you posted recently. Still around if a quick chat ever makes sense. No pressure.\n\n— Govind\n\n---\n*Tim — message 2 of 3. 2–4 sentences max.*`,
       },
       3: {
         name: "Warm LinkedIn DM — Final nudge (3/3)",
-        content: `# Warm DM — Close the loop\n\nI'll leave it here — know you're busy. Door's open if anything changes.\n\n— Govind\n\n---\n*Tim — message 3 of 3. Zero pressure, 2–3 sentences.*`,
+        content: `# Warm DM — Close the loop${briefBlock}${notesBlock}\nI'll leave it here — know you're busy. Door's open if anything changes.\n\n— Govind\n\n---\n*Tim — message 3 of 3. Zero pressure, 2–3 sentences.*`,
       },
     };
     const t = warmDrafts[seq];
     await insertArtifact(itemId, workflowId, stage, t.name, t.content);
     return;
+  }
+
+  // Warm outreach: follow-up reply drafts after contact replies (Groq when not using fake data)
+  if (wfType?.id === "warm-outreach" && stage === "REPLY_DRAFT" && !useFakeData) {
+    const notes = await getWarmContactNotes(itemId);
+    const packageBrief = await getWarmPackageBriefForItem(itemId);
+    const enrichRows = await query<{ content: string }>(
+      `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'RESEARCHING' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+      [itemId]
+    );
+    const enrichment = enrichRows[0]?.content || "";
+    const threadRows = await query<{ stage: string; content: string }>(
+      `SELECT stage, content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage IN ('MESSAGE_DRAFT', 'REPLY_DRAFT', 'REPLY_SENT') AND "deletedAt" IS NULL ORDER BY "createdAt" ASC`,
+      [itemId]
+    );
+    const threadSummary = threadRows
+      .map((r) => `### ${r.stage}\n${r.content.slice(0, 2000)}`)
+      .join("\n\n");
+    const llm = await generateWarmReplyDraftLLM(notes, enrichment, threadSummary, workflowName, packageBrief);
+    if (llm) {
+      await insertArtifact(itemId, workflowId, stage, "Reply draft", llm);
+      return;
+    }
   }
 
   // Map of stage keys to artifact generators
@@ -870,7 +1343,7 @@ async function generateStageArtifact(
     },
     MESSAGED: {
       name: "LinkedIn DM sent",
-      content: `# Message sent\n\n**Channel:** LinkedIn DM\n**Status:** Sent (simulated)\n\nLog send time in CRM if needed. Warm outreach: wait for reply window or use **Continue** for the next draft when appropriate.\n\n---\n*Tim*`,
+      content: `# Message status\n\n**Channel:** LinkedIn DM\n**Status:** Not sent via API from this step\n\nWarm outreach normally sends through Unipile when you **Approve** a message draft (if Unipile is configured). This artifact was created without a send attempt — use **Continue** / **Replied** as appropriate.\n\n---\n*Tim*`,
     },
     REPLIED: {
       name: "Contact replied",
@@ -882,7 +1355,7 @@ async function generateStageArtifact(
     },
     REPLY_SENT: {
       name: "Reply sent",
-      content: `# Reply sent\n\n**Channel:** LinkedIn DM\n**Status:** Sent (simulated)\n\nTim will prepare the next reply draft if the thread continues.\n\n---\n*Tim*`,
+      content: `# Reply status\n\n**Channel:** LinkedIn DM\n**Status:** Not sent via API from this step\n\nReplies send through Unipile when you **Approve** a reply draft. If you see this text, no Unipile call was recorded for this transition.\n\n---\n*Tim*`,
     },
     ENDED: {
       name: "Sequence summary",
@@ -907,7 +1380,10 @@ async function generateStageArtifact(
 
   // Check if artifact already exists for this item+stage (allow multiples for cycling stages like MESSAGE_DRAFT)
   const ALLOW_MULTIPLE_STAGES = new Set(["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT"]);
-  if (!ALLOW_MULTIPLE_STAGES.has(stage)) {
+  const allowMultipleArtifact =
+    ALLOW_MULTIPLE_STAGES.has(stage) ||
+    (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT"));
+  if (!allowMultipleArtifact) {
     const existing = await query(
       `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
       [itemId, stage]

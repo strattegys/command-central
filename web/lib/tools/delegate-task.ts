@@ -49,8 +49,8 @@ const tool: ToolModule = {
 
     if (urgency === "sync") {
       // Dynamic import to avoid circular dependency with gemini.ts
-      const { autonomousChat } = await import("../gemini");
-      const result = await autonomousChat(targetAgent, taskDesc, {
+      const { agentAutonomousChat } = await import("../agent-llm");
+      const result = await agentAutonomousChat(targetAgent, taskDesc, {
         fromAgent: agentId,
       });
       return result || "The agent completed the task but returned no response.";

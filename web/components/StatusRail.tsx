@@ -99,7 +99,7 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
           className="ml-auto shrink-0 text-[10px] font-mono text-[var(--text-tertiary)] tabular-nums"
           title="Build code"
         >
-          B25C
+          B25D
         </span>
       </div>
 

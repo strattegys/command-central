@@ -197,18 +197,28 @@ async function groqChat(
 
 // ── Streaming chat ──
 
+export type GroqStreamOptions = {
+  /** Override session file (e.g. LinkedIn triage JSONL). */
+  sessionFile?: string;
+  /** Text persisted as the user turn (defaults to userMessage). */
+  saveMessage?: string;
+};
+
 export async function chatStreamGroq(
   agentId: string,
   userMessage: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  streamOptions?: GroqStreamOptions
 ): Promise<ChatStreamResult> {
   const config = getAgentConfig(agentId);
+  const sessionFile = streamOptions?.sessionFile ?? config.sessionFile;
+  const persistedUserText = streamOptions?.saveMessage ?? userMessage;
   const systemPrompt = await getSystemPrompt(
     config.systemPromptFile,
     agentId,
     userMessage
   );
-  const history = getHistory(config.sessionFile);
+  const history = getHistory(sessionFile);
   const tools = buildGroqTools(config.tools);
   const model = config.modelName || DEFAULT_MODEL;
   const delegatedAgents = new Set<string>();
@@ -226,9 +236,9 @@ export async function chatStreamGroq(
     if (!response.tool_calls || response.tool_calls.length === 0) {
       const text = response.content;
       if (text) {
-        addMessage(config.sessionFile, {
+        addMessage(sessionFile, {
           role: "user",
-          text: userMessage,
+          text: persistedUserText,
           timestamp: Date.now(),
         });
         const modelMsg: ChatMessage = {
@@ -239,9 +249,9 @@ export async function chatStreamGroq(
         if (delegatedAgents.size > 0) {
           modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
         }
-        addMessage(config.sessionFile, modelMsg);
+        addMessage(sessionFile, modelMsg);
         if (!isChatEphemeralAgent(agentId)) {
-          consolidateSession(agentId, config.sessionFile).catch(() => {});
+          consolidateSession(agentId, sessionFile).catch(() => {});
         }
 
         onChunk(text);
@@ -324,9 +334,9 @@ export async function chatStreamGroq(
   const fullText = finalResponse.content;
 
   if (fullText) {
-    addMessage(config.sessionFile, {
+    addMessage(sessionFile, {
       role: "user",
-      text: userMessage,
+      text: persistedUserText,
       timestamp: Date.now(),
     });
     const modelMsg: ChatMessage = {
@@ -337,9 +347,9 @@ export async function chatStreamGroq(
     if (delegatedAgents.size > 0) {
       modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
     }
-    addMessage(config.sessionFile, modelMsg);
+    addMessage(sessionFile, modelMsg);
     if (!isChatEphemeralAgent(agentId)) {
-      consolidateSession(agentId, config.sessionFile).catch(() => {});
+      consolidateSession(agentId, sessionFile).catch(() => {});
     }
 
     onChunk(fullText);
@@ -354,20 +364,39 @@ export async function chatStreamGroq(
   };
 }
 
+/** Non-streaming chat (e.g. LinkedIn triage) — reuses tool loop + session persistence. */
+export async function chatGroq(
+  agentId: string,
+  userMessage: string,
+  options?: GroqStreamOptions
+): Promise<string> {
+  let latest = "";
+  const result = await chatStreamGroq(
+    agentId,
+    userMessage,
+    (chunk) => {
+      latest = chunk;
+    },
+    options
+  );
+  return result.text || latest;
+}
+
 // ── Autonomous chat (heartbeat / background tasks) ──
 
 export async function autonomousChatGroq(
   agentId: string,
   triggerPrompt: string,
-  options?: { maxHistory?: number; fromAgent?: string }
+  options?: { maxHistory?: number; fromAgent?: string; sessionFile?: string }
 ): Promise<string> {
   const config = getAgentConfig(agentId);
+  const sessionFile = options?.sessionFile ?? config.sessionFile;
   const systemPrompt = await getSystemPrompt(
     config.systemPromptFile,
     agentId,
     triggerPrompt
   );
-  const history = getHistory(config.sessionFile);
+  const history = getHistory(sessionFile);
   const tools = buildGroqTools(config.tools);
   const model = config.modelName || DEFAULT_MODEL;
 
@@ -375,7 +404,7 @@ export async function autonomousChatGroq(
   const recentHistory = history.slice(-maxHistory);
 
   if (options?.fromAgent) {
-    addMessage(config.sessionFile, {
+    addMessage(sessionFile, {
       role: "user",
       text: triggerPrompt,
       timestamp: Date.now(),
@@ -421,7 +450,7 @@ export async function autonomousChatGroq(
 
     const replyText = response.content;
     if (replyText) {
-      addMessage(config.sessionFile, {
+      addMessage(sessionFile, {
         role: "model",
         text: replyText,
         timestamp: Date.now(),
@@ -434,7 +463,7 @@ export async function autonomousChatGroq(
 
   if (options?.fromAgent && iterations > 0) {
     const fallbackMsg = "(Task was processed but no summary was generated)";
-    addMessage(config.sessionFile, {
+    addMessage(sessionFile, {
       role: "model",
       text: fallbackMsg,
       timestamp: Date.now(),

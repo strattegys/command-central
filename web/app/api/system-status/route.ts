@@ -101,9 +101,15 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     }
     const msg = e instanceof Error ? e.message : String(e);
     let detail = msg.slice(0, 88);
-    if (/ECONNREFUSED/i.test(msg) && /5432/.test(msg)) {
-      detail =
-        (detail + " → host:5432 empty or use docker-compose.crm-network.yml").slice(0, 140);
+    if (/ECONNREFUSED/i.test(msg)) {
+      const portHint =
+        process.env.CRM_DB_PORT && process.env.CRM_DB_PORT !== "5432"
+          ? `port ${process.env.CRM_DB_PORT}`
+          : "5432";
+      detail = `${detail.slice(0, 72)} → start Postgres/SSH tunnel; local dev: CRM_DB_HOST=127.0.0.1 + scripts/crm-db-tunnel (.ps1/.sh) (${portHint})`.slice(
+        0,
+        160
+      );
     }
     return {
       id: DATA_PLATFORM_ID,
@@ -132,6 +138,99 @@ async function probeDataPlatform(): Promise<ProbeResult> {
   };
 }
 
+/** Unipile API — validates key + reachability (GET /accounts). */
+async function probeUnipile(): Promise<ProbeResult> {
+  const id = "unipile";
+  const label = "Unipile (LinkedIn)";
+  const apiKey = process.env.UNIPILE_API_KEY?.trim();
+  const dsn = process.env.UNIPILE_DSN?.trim();
+  const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();
+
+  if (!apiKey || !dsn) {
+    return {
+      id,
+      label,
+      status: "skipped",
+      detail: "set UNIPILE_API_KEY + UNIPILE_DSN",
+    };
+  }
+
+  const url = `https://${dsn}/api/v1/accounts`;
+  const t0 = Date.now();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), PROBE_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      signal: ac.signal,
+      cache: "no-store",
+      headers: {
+        "X-API-KEY": apiKey,
+        accept: "application/json",
+      },
+    });
+    clearTimeout(timer);
+    const ms = Date.now() - t0;
+
+    if (res.ok) {
+      let detail = accountId ? `acct ${accountId.slice(0, 8)}…` : "API OK";
+      try {
+        const data = (await res.json()) as unknown;
+        const list = Array.isArray(data)
+          ? data
+          : data &&
+              typeof data === "object" &&
+              Array.isArray((data as { items?: unknown[] }).items)
+            ? (data as { items: unknown[] }).items
+            : null;
+        if (list) {
+          const linkedin = list.filter(
+            (a: unknown) =>
+              a &&
+              typeof a === "object" &&
+              String((a as { type?: string }).type || "").toUpperCase().includes("LINKEDIN")
+          );
+          detail =
+            linkedin.length > 0
+              ? `${linkedin.length} LinkedIn account(s)`
+              : `${list.length} account(s)`;
+        }
+      } catch {
+        /* keep default */
+      }
+      return { id, label, status: "ok", ms, detail };
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      const hint = await res.text().catch(() => "");
+      return {
+        id,
+        label,
+        status: "down",
+        ms,
+        detail: `auth failed (${res.status})${hint ? ` ${hint.slice(0, 40)}` : ""}`,
+      };
+    }
+
+    return {
+      id,
+      label,
+      status: "down",
+      ms,
+      detail: `HTTP ${res.status}`,
+    };
+  } catch (e) {
+    clearTimeout(timer);
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      id,
+      label,
+      status: "down",
+      detail: msg.includes("abort") ? "timeout" : msg.slice(0, 56),
+    };
+  }
+}
+
 /**
  * GET /api/system-status — lightweight reachability checks (server-side only).
  */
@@ -144,9 +243,10 @@ export async function GET() {
     /* keep default */
   }
 
-  const [dataPlatform, site] = await Promise.all([
+  const [dataPlatform, site, unipile] = await Promise.all([
     probeDataPlatform(),
     probeHttp("site", "Site", siteOrigin, "/"),
+    probeUnipile(),
   ]);
 
   const hasInworldKey = !!process.env.INWORLD_TTS_KEY?.trim();
@@ -163,6 +263,7 @@ export async function GET() {
     { id: "web", label: "Command Central", status: "ok", ms: 0 },
     dataPlatform,
     site,
+    unipile,
     inworldTts,
   ];
 

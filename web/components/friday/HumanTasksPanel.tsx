@@ -52,6 +52,7 @@ interface HumanTask {
   workflowName: string;
   packageName: string;
   ownerAgent: string;
+  /** Package for sim logs — use this directly (workflow-items API has no workflowItemId lookup) */
   packageId: string | null;
   workflowType: string;
   stage: string;
@@ -131,6 +132,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
       action: "approve" | "reject" | "input" | "replied" | "ended",
       notes?: string
     ) => {
+      if (resolving) return;
       setResolving(itemId);
       try {
         const res = await fetch("/api/crm/human-tasks/resolve", {
@@ -139,30 +141,37 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
           body: JSON.stringify({ itemId, action, notes: notes || undefined }),
         });
         const data = await res.json();
-        if (data.ok) {
-          // Append logs to sessionStorage for the Logs panel
-          if (data.logs && data.logs.length > 0) {
-            try {
-              // Find the package ID for this task's workflow
-              const task = tasks.find(t => t.itemId === itemId);
-              if (task) {
-                // Try to find the packageId from the workflow
-                const wfRes = await fetch(`/api/crm/workflow-items?workflowItemId=${itemId}`);
-                const wfData = await wfRes.json();
-                const packageId = wfData.packageId;
-                if (packageId) {
-                  const key = `simLog-${packageId}`;
-                  const existing = JSON.parse(sessionStorage.getItem(key) || "[]");
-                  sessionStorage.setItem(key, JSON.stringify([...existing, ...data.logs]));
-                }
-              }
-            } catch { /* ignore log storage failures */ }
+        const pushLogsToPackage = (logs: string[], resolvedPackageId: string | null | undefined) => {
+          if (!logs?.length) return;
+          const packageId = resolvedPackageId ?? undefined;
+          if (!packageId) return;
+          try {
+            const key = `simLog-${packageId}`;
+            const existing = JSON.parse(sessionStorage.getItem(key) || "[]");
+            const merged = [...[...logs].reverse(), ...existing];
+            sessionStorage.setItem(key, JSON.stringify(merged));
+            panelBus.emit("sim_log");
+          } catch {
+            /* ignore */
           }
-          // Remove the task from the list immediately
+        };
+
+        const taskRow = tasks.find((t) => t.itemId === itemId);
+        const resolvedPackageId =
+          (data as { packageId?: string | null }).packageId ?? taskRow?.packageId ?? null;
+
+        if (data.ok) {
+          if (data.logs?.length) pushLogsToPackage(data.logs, resolvedPackageId);
           setTasks((prev) => prev.filter((t) => t.itemId !== itemId));
           setIdeaInput("");
-          // Re-fetch to get accurate state
           setTimeout(fetchTasks, 500);
+        } else {
+          const failLines = [
+            `[${new Date().toISOString()}] Task resolve failed: ${data.error || res.status}`,
+            ...(data.logs || []),
+            ...(data.detail ? [`Detail: ${data.detail}`] : []),
+          ];
+          pushLogsToPackage(failLines, resolvedPackageId);
         }
       } catch {
         // ignore
@@ -193,31 +202,38 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
     );
   }
 
+  const tabBtnClass = (active: boolean) =>
+    `text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+      active
+        ? "font-semibold text-[var(--text-primary)]"
+        : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+    }`;
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Now / Later tabs — hidden in compact mode */}
-      {!compact && <div className="flex items-center gap-1 px-3 pt-3 pb-2 shrink-0">
-        <button
-          onClick={() => setTab("now")}
-          className={`text-[11px] px-3 py-1 rounded-full font-semibold transition-colors ${
-            tab === "now"
-              ? "bg-amber-500/20 text-amber-400"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          }`}
-        >
-          Now{nowTasks.length > 0 ? ` (${nowTasks.length})` : ""}
+      {/* Now / Later — Suzi-style text tabs (shown in compact Package Planner embed too) */}
+      <div
+        className={`flex items-center gap-2 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] ${
+          compact ? "px-2 py-1" : "px-3 py-2"
+        }`}
+      >
+        <button type="button" onClick={() => setTab("now")} className={tabBtnClass(tab === "now")}>
+          Now
+          {nowTasks.length > 0 && (
+            <span className="ml-1 text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">
+              {nowTasks.length}
+            </span>
+          )}
         </button>
-        <button
-          onClick={() => setTab("later")}
-          className={`text-[11px] px-3 py-1 rounded-full font-semibold transition-colors ${
-            tab === "later"
-              ? "bg-blue-500/20 text-blue-400"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          }`}
-        >
-          Later{laterTasks.length > 0 ? ` (${laterTasks.length})` : ""}
+        <button type="button" onClick={() => setTab("later")} className={tabBtnClass(tab === "later")}>
+          Later
+          {laterTasks.length > 0 && (
+            <span className="ml-1 text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">
+              {laterTasks.length}
+            </span>
+          )}
         </button>
-      </div>}
+      </div>
 
       {visibleTasks.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
@@ -228,11 +244,11 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
       )}
 
       {visibleTasks.length > 0 && (
-      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+      <div className={`flex-1 overflow-y-auto space-y-2 ${compact ? "px-2 py-2" : "px-3 py-2 pb-3"}`}>
           {visibleTasks.map((task) => (
               <div
                 key={task.itemId}
-                className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-amber-500/40 transition-colors"
+                className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[var(--text-tertiary)]/25 transition-colors"
               >
                 {/* Task header */}
                 <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -260,15 +276,15 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                     height="10"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="#F59E0B"
+                    stroke="currentColor"
                     strokeWidth="2"
                     strokeLinecap="round"
-                    className="shrink-0 mt-0.5"
+                    className="shrink-0 mt-0.5 text-[var(--text-tertiary)] opacity-70"
                   >
                     <circle cx="12" cy="7" r="4" />
                     <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
                   </svg>
-                  <span className="text-[11px] text-amber-300/80 leading-relaxed">
+                  <span className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
                     {task.humanAction}
                   </span>
                 </div>
@@ -284,7 +300,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                           ? "Name, LinkedIn URL, how you know them, and any relevant notes..."
                           : "Describe your article idea — topic, angle, or rough concept..."
                       }
-                      className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-2 text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-amber-500/50"
+                      className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-2 text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-tertiary)]"
                       rows={3}
                     />
                   </div>
@@ -308,7 +324,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                         type="button"
                         onClick={() => handleResolve(task.itemId, "replied")}
                         disabled={resolving === task.itemId}
-                        className="text-[10px] px-3 py-1 rounded bg-blue-900/30 border border-blue-800/50 text-blue-300 hover:bg-blue-900/50 transition-colors disabled:opacity-50 font-semibold"
+                        className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors disabled:opacity-50 font-medium"
                       >
                         Replied
                       </button>
@@ -318,7 +334,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                         type="button"
                         onClick={() => handleResolve(task.itemId, "ended")}
                         disabled={resolving === task.itemId}
-                        className="text-[10px] px-3 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50 font-semibold"
+                        className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 font-medium"
                       >
                         End Sequence
                       </button>
@@ -329,7 +345,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                         type="button"
                         onClick={() => handleResolve(task.itemId, "reject")}
                         disabled={resolving === task.itemId}
-                        className="text-[10px] px-3 py-1 rounded bg-red-900/30 border border-red-800/50 text-red-400 hover:bg-red-900/50 transition-colors disabled:opacity-50 font-semibold"
+                        className="text-[10px] px-2.5 py-1 rounded-md border border-red-500/20 bg-red-500/5 text-red-400/90 hover:bg-red-500/10 transition-colors disabled:opacity-50 font-medium"
                       >
                         Reject
                       </button>
@@ -342,7 +358,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                         INPUT_ONLY_STAGES.has(task.stage) ? ideaInput : undefined
                       )}
                       disabled={resolving === task.itemId || (INPUT_ONLY_STAGES.has(task.stage) && (!ideaInput || !ideaInput.trim()))}
-                      className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors disabled:opacity-50 font-semibold"
+                      className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--accent-green)]/30 bg-[var(--accent-green)]/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--accent-green)]/15 transition-colors disabled:opacity-50 font-medium"
                     >
                       {task.stage === "MESSAGED" && task.workflowType === "warm-outreach"
                         ? "Continue"
@@ -363,14 +379,11 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
           focusStage={artifactView.focusStage}
           title={artifactView.workflowName}
           agentId={artifactView.agentId}
-          onSubmitTask={artifactView.taskItemId ? async () => {
-            await fetch("/api/crm/human-tasks/resolve", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ itemId: artifactView.taskItemId, action: "approve" }),
-            });
-            fetchTasks();
-          } : undefined}
+          onSubmitTask={
+            artifactView.taskItemId
+              ? () => handleResolve(artifactView.taskItemId!, "approve")
+              : undefined
+          }
           onClose={() => setArtifactView(null)}
         />,
         document.body

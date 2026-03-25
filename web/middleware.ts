@@ -1,9 +1,34 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
+/** Paths that must never require a session (img src, webhooks, NextAuth). Matcher regex can miss edge cases. */
+function isPublicPath(pathname: string): boolean {
+  if (pathname === "/login") return true;
+  if (pathname.startsWith("/api/auth")) return true;
+  if (pathname.startsWith("/api/webhooks")) return true;
+  if (pathname.startsWith("/api/agent-avatar")) return true;
+  if (pathname.startsWith("/_next/")) return true;
+  if (pathname === "/favicon.ico" || pathname === "/sw.js") return true;
+  return false;
+}
+
 export default auth((req) => {
+  if (isPublicPath(req.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
   // Allow internal server-to-server calls (cron, scripts, etc.)
-  if (req.headers.get("x-internal-key") === process.env.INTERNAL_API_KEY) {
+  const internalKey = process.env.INTERNAL_API_KEY?.trim();
+  if (internalKey && req.headers.get("x-internal-key") === internalKey) {
+    return NextResponse.next();
+  }
+  // LinkedIn webhook → warm-outreach auto-resolve calls this route via loopback/fetch (no browser session)
+  const whSecret = process.env.UNIPILE_WEBHOOK_SECRET?.trim();
+  if (
+    whSecret &&
+    req.method === "POST" &&
+    req.nextUrl.pathname === "/api/crm/human-tasks/resolve" &&
+    req.headers.get("authorization") === `Bearer ${whSecret}`
+  ) {
     return NextResponse.next();
   }
   if (!req.auth) {

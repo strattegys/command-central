@@ -3,6 +3,8 @@ import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { getAgentSpec } from "@/lib/agent-registry";
 
+export const runtime = "nodejs";
+
 // Persistent avatar uploads. Docker Compose sets AVATAR_DIR=/data/agent-avatars (mounted volume).
 // Default /tmp/... avoids EACCES when the process user cannot read /root.
 const AVATAR_DIR =

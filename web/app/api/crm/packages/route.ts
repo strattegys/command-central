@@ -74,7 +74,22 @@ export async function POST(req: NextRequest) {
         ? nameInput.trim()
         : template.label;
 
-    const pkgSpec = spec || { deliverables: template.deliverables };
+    const baseSpec =
+      spec && typeof spec === "object" && !Array.isArray(spec)
+        ? { ...spec }
+        : { deliverables: template.deliverables };
+
+    let pkgSpec: Record<string, unknown> = baseSpec;
+    if (templateId === "vibe-coding-outreach") {
+      const briefRaw = pkgSpec.brief;
+      const briefStr = typeof briefRaw === "string" ? briefRaw.trim() : "";
+      if (!briefStr) {
+        const { TIM_WARM_OUTREACH_PACKAGE_BRIEF } = await import(
+          "@/lib/package-spec-briefs/tim-warm-outreach-package-brief"
+        );
+        pkgSpec = { ...pkgSpec, brief: TIM_WARM_OUTREACH_PACKAGE_BRIEF };
+      }
+    }
 
     const rows = await query(
       `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")

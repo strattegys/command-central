@@ -5,7 +5,10 @@ import { createPortal } from "react-dom";
 import { WORKFLOW_TYPES, type StageSpec } from "@/lib/workflow-types";
 import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
+import { TIM_WARM_OUTREACH_PACKAGE_BRIEF } from "@/lib/package-spec-briefs/tim-warm-outreach-package-brief";
+import { panelBus } from "@/lib/events";
 import ArtifactViewer from "../shared/ArtifactViewer";
+import CampaignSpecModal from "./CampaignSpecModal";
 
 const AGENT_COLORS: Record<string, string> = {
   scout: "#2563EB",
@@ -20,13 +23,6 @@ const AGENT_COLORS: Record<string, string> = {
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "people",
   content: "content",
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  DRAFT: "#6b8a9e",
-  PENDING_APPROVAL: "#D4A017",
-  ACTIVE: "#1D9E75",
-  COMPLETED: "#22c55e",
 };
 
 interface PackageRow {
@@ -79,11 +75,20 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
   const setSimLog = useCallback((updater: string[] | ((prev: string[]) => string[])) => {
     setSimLogRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { sessionStorage.setItem(`simLog-${pkg.id}`, JSON.stringify(next)); } catch {}
+      try {
+        sessionStorage.setItem(`simLog-${pkg.id}`, JSON.stringify(next));
+        panelBus.emit("sim_log");
+      } catch {}
       return next;
     });
   }, [pkg.id]);
-  const [artifactView, setArtifactView] = useState<{ workflowId?: string; stage?: string; itemType?: string; agentId?: string } | null>(null);
+  const [artifactView, setArtifactView] = useState<{
+    workflowId?: string;
+    itemType?: "person" | "content";
+    agentId?: string;
+    title?: string;
+    allWorkflowArtifacts?: boolean;
+  } | null>(null);
   // Stage progress: { workflowType: { stageKey: count } }
   const [progress, setProgress] = useState<Record<string, Record<string, number>>>({});
   // Volume tracking: { workflowType: { targetCount, totalItems } }
@@ -97,6 +102,53 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
   // Fall back to stored spec deliverables only if no template exists
   const template = PACKAGE_TEMPLATES[pkg.templateId];
   const deliverables = template?.deliverables || pkg.spec?.deliverables || [];
+  const showPackageBrief = Boolean(template?.showPackageBrief);
+
+  const initialBrief = (() => {
+    try {
+      const s = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
+      return typeof s?.brief === "string" ? s.brief : "";
+    } catch {
+      return "";
+    }
+  })();
+  const [briefText, setBriefText] = useState(initialBrief);
+  const [specModalOpen, setSpecModalOpen] = useState(false);
+
+  useEffect(() => {
+    setBriefText(initialBrief);
+  }, [pkg.id, initialBrief]);
+
+  // Backfill canonical Tim warm-outreach brief when the row was created before spec.brief was wired (e.g. default package name "Warm Outreach", dev store, or pre-seed DB).
+  useEffect(() => {
+    if (pkg.templateId !== "vibe-coding-outreach") return;
+    if (initialBrief.trim() !== "") return;
+
+    const ac = new AbortController();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/crm/packages", {
+          method: "PATCH",
+          signal: ac.signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: pkg.id,
+            spec: { brief: TIM_WARM_OUTREACH_PACKAGE_BRIEF },
+          }),
+        });
+        if (!cancelled && !ac.signal.aborted && r.ok) {
+          setBriefText(TIM_WARM_OUTREACH_PACKAGE_BRIEF);
+        }
+      } catch {
+        /* ignore abort / network */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [pkg.id, pkg.templateId, initialBrief]);
 
   // Poll for stage progress when active or testing
   useEffect(() => {
@@ -132,6 +184,12 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
   }, [pkgStage, pkg.id]);
 
   // Move to Testing mode (no tasks created yet)
+  const appendActivationLog = useCallback((data: { activationLog?: string[] }) => {
+    if (!data.activationLog?.length) return;
+    const lines = [...data.activationLog!].reverse();
+    setSimLog((prev) => [...lines, ...prev]);
+  }, []);
+
   const handleTest = useCallback(async () => {
     try {
       const res = await fetch("/api/crm/packages/activate", {
@@ -142,14 +200,23 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       const data = await res.json();
       if (data.ok) {
         setPkgStage("PENDING_APPROVAL");
-        setSimLog((prev) => [...prev, `Moved to Testing`]);
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Moved to Testing (no workflows yet)`,
+          ...prev,
+        ]);
+        appendActivationLog(data);
       } else {
-        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
+          ...(data.activationLog || []),
+          ...(data.detail ? [`Detail: ${data.detail}`] : []),
+          ...prev,
+        ]);
       }
     } catch (e) {
-      setSimLog((prev) => [...prev, `Test failed: ${e}`]);
+      setSimLog((prev) => [`${new Date().toLocaleTimeString()}] Test failed: ${e}`, ...prev]);
     }
-  }, [pkg.id]);
+  }, [pkg.id, appendActivationLog]);
 
   // Start the test — create workflows and first task
   const handleStartTest = useCallback(async () => {
@@ -162,17 +229,26 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       const data = await res.json();
       if (data.ok) {
         setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Start Test: ${data.workflows.length} workflow(s) created`,
+          ...data.workflows.map(
+            (w: { label: string; ownerAgent: string; workflowId?: string }) =>
+              `  → ${w.label} (${w.ownerAgent})${w.workflowId ? ` [${w.workflowId.slice(0, 8)}…]` : ""}`
+          ),
           ...prev,
-          `Started: created ${data.workflows.length} workflows`,
-          ...data.workflows.map((w: { label: string; ownerAgent: string }) => `  → ${w.label} (${w.ownerAgent})`),
         ]);
+        appendActivationLog(data);
       } else {
-        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
+          ...(data.activationLog || []),
+          ...(data.detail ? [`Detail: ${data.detail}`] : []),
+          ...prev,
+        ]);
       }
     } catch (e) {
-      setSimLog((prev) => [...prev, `Start failed: ${e}`]);
+      setSimLog((prev) => [`${new Date().toLocaleTimeString()}] Start failed: ${e}`, ...prev]);
     }
-  }, [pkg.id, useFakeData]);
+  }, [pkg.id, useFakeData, appendActivationLog]);
 
   const handleActivate = useCallback(async () => {
     try {
@@ -184,14 +260,23 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       const data = await res.json();
       if (data.ok) {
         setPkgStage("ACTIVE");
-        setSimLog((prev) => [...prev, `Activated: package is now live`]);
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Activated: package is now live`,
+          ...prev,
+        ]);
+        appendActivationLog(data);
       } else {
-        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
+          ...(data.activationLog || []),
+          ...(data.detail ? [`Detail: ${data.detail}`] : []),
+          ...prev,
+        ]);
       }
     } catch (e) {
-      setSimLog((prev) => [...prev, `Activation failed: ${e}`]);
+      setSimLog((prev) => [`${new Date().toLocaleTimeString()}] Activation failed: ${e}`, ...prev]);
     }
-  }, [pkg.id]);
+  }, [pkg.id, appendActivationLog]);
 
   // Reset clears test data but stays in current stage (PENDING_APPROVAL)
   const handleReset = useCallback(async () => {
@@ -203,16 +288,19 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       });
       const data = await res.json();
       if (data.ok) {
-        setSimLog([`Reset: cleared ${data.cleared.workflows} workflows, ${data.cleared.boards} boards. Ready to Start Test again.`]);
+        setSimLog((prev) => [
+          `Reset: cleared ${data.cleared.workflows} workflows, ${data.cleared.boards} boards. Ready to Start Test again.`,
+          ...prev,
+        ]);
         setProgress({});
         setVolumeInfo({});
         setArtifactStages({});
         setWorkflowIds({});
       } else {
-        setSimLog((prev) => [...prev, `Reset error: ${data.error}`]);
+        setSimLog((prev) => [`Reset error: ${data.error}`, ...prev]);
       }
     } catch (e) {
-      setSimLog((prev) => [...prev, `Reset failed: ${e}`]);
+      setSimLog((prev) => [`Reset failed: ${e}`, ...prev]);
     }
   }, [pkg.id]);
 
@@ -234,12 +322,19 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
         setArtifactStages({});
         setWorkflowIds({});
       } else {
-        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+        setSimLog((prev) => [`Error: ${data.error}`, ...prev]);
       }
     } catch (e) {
-      setSimLog((prev) => [...prev, `Failed: ${e}`]);
+      setSimLog((prev) => [`Failed: ${e}`, ...prev]);
     }
   }, [pkg.id]);
+
+  const btnBase =
+    "text-[10px] px-2 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors font-medium cursor-pointer";
+  const btnAccent =
+    "text-[10px] px-2 py-1 rounded-md border border-[var(--accent-green)]/30 bg-[var(--accent-green)]/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--accent-green)]/15 transition-colors font-medium cursor-pointer";
+  const btnWarm =
+    "text-[10px] px-2 py-1 rounded-md border border-[var(--accent-orange)]/25 bg-[var(--accent-orange)]/8 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--accent-orange)]/12 transition-colors font-medium cursor-pointer";
 
   return (
     <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden">
@@ -272,10 +367,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
           {pkgStage === "DRAFT" && (
-            <button
-              onClick={handleTest}
-              className="text-[10px] px-2.5 py-1 rounded-full bg-[#D4A017] text-white font-semibold hover:bg-[#b8891a] transition-colors"
-            >
+            <button onClick={handleTest} className={btnWarm}>
               Test
             </button>
           )}
@@ -286,51 +378,55 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
                   type="checkbox"
                   checked={useFakeData}
                   onChange={(e) => setUseFakeData(e.target.checked)}
-                  className="w-3 h-3 rounded accent-[#D4A017]"
+                  className="w-3 h-3 rounded border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--accent-green)]"
                 />
                 Fake Data
               </label>
-              <button
-                onClick={handleStartTest}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[#D4A017] text-white font-semibold hover:bg-[#b8891a] transition-colors"
-              >
+              <button onClick={handleStartTest} className={btnWarm}>
                 Start Test
               </button>
-              <button
-                onClick={handleReset}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[#555] text-white font-semibold hover:bg-[#777] transition-colors"
-              >
+              <button onClick={handleReset} className={btnBase}>
                 Reset
               </button>
-              <button
-                onClick={handleActivate}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[#1D9E75] text-white font-semibold hover:bg-[#17865f] transition-colors"
-              >
+              <button onClick={handleActivate} className={btnAccent}>
                 Activate
               </button>
-              <button
-                onClick={handleBackToDraft}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[#2563EB] text-white font-semibold hover:bg-[#1d4ed8] transition-colors"
-              >
+              <button onClick={handleBackToDraft} className={btnBase}>
                 Draft
               </button>
             </>
           )}
           {pkgStage === "ACTIVE" && (
-            <button
-              onClick={handleReset}
-              className="text-[10px] px-2.5 py-1 rounded-full bg-[#555] text-white font-semibold hover:bg-[#777] transition-colors"
-            >
+            <button onClick={handleReset} className={btnBase}>
               Reset
             </button>
           )}
         </div>
       </div>
 
+      {showPackageBrief && (
+        <div className="px-3 py-1.5 border-b border-[var(--border-color)] flex items-center justify-between gap-2 bg-[var(--bg-primary)]/40">
+          <span className="text-[10px] text-[var(--text-secondary)] truncate min-w-0">
+            <span className="text-[var(--text-tertiary)]">Outreach brief:</span>{" "}
+            {briefText.trim() ? (
+              <span className="text-[var(--text-primary)]">Set ({briefText.trim().length} chars)</span>
+            ) : (
+              <span className="text-amber-600/90">Not set — recommended before Start Test</span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSpecModalOpen(true)}
+            className="shrink-0 text-[10px] px-2 py-0.5 rounded font-semibold text-white bg-[#E67E22] hover:opacity-90 transition-opacity"
+          >
+            Edit
+          </button>
+        </div>
+      )}
+
       {/* Collapsible body */}
       {!isCollapsed && (
       <>
-      {/* Campaign Spec is created as an artifact during the workflow process */}
 
       {/* Deliverables */}
       {deliverables.length > 0 && (
@@ -364,12 +460,33 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
                 stageCounts={progress[d.workflowType] || {}}
                 volumeInfo={volumeInfo[d.workflowType]}
                 pacing={d.pacing}
-                hasData={(artifactStages[d.workflowType] || []).length > 0 || Object.values(progress[d.workflowType] || {}).some(c => c > 0)}
-                onInspect={() => setArtifactView({
-                  workflowId: workflowIds[d.workflowType],
-                  itemType: wfType?.itemType || "content",
-                  agentId: d.ownerAgent,
-                })}
+                onInspect={async () => {
+                  let wid = workflowIds[d.workflowType];
+                  if (!wid) {
+                    try {
+                      const r = await fetch(`/api/crm/packages/progress?packageId=${pkg.id}`);
+                      const j = await r.json();
+                      const wmap = j.workflows || {};
+                      for (const [id, wf] of Object.entries(wmap) as [string, { workflowType?: string }][]) {
+                        if (wf.workflowType === d.workflowType) {
+                          wid = id;
+                          break;
+                        }
+                      }
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  if (!wid) return;
+                  setWorkflowIds((prev) => ({ ...prev, [d.workflowType]: wid! }));
+                  setArtifactView({
+                    workflowId: wid,
+                    agentId: d.ownerAgent,
+                    title: `${pkg.name} — ${d.label}`,
+                    allWorkflowArtifacts: true,
+                    itemType: "content",
+                  });
+                }}
               />
             );
           })}
@@ -398,9 +515,24 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
           workflowId={artifactView.workflowId}
           itemType={artifactView.itemType || "content"}
           agentId={artifactView.agentId}
+          title={artifactView.title}
+          allWorkflowArtifacts={artifactView.allWorkflowArtifacts}
           onClose={() => setArtifactView(null)}
         />,
         document.body
+      )}
+
+      {specModalOpen && (
+        <CampaignSpecModal
+          packageId={pkg.id}
+          packageName={pkg.name}
+          initialSpec={briefText}
+          modalTitle="Outreach brief"
+          helpText="Messaging angle, tone, what Govind is building (vibe coding / AI agents), boundaries (no pitch deck, no links), and anything Tim should honor for every contact in this package. Saved as package spec.brief and copied to each workflow item as the first artifact when you start testing."
+          placeholder="Example: Friend-to-first tone. Govind is focused on vibe coding and shipping AI-agent workflows for teams. DMs are short, no strattegys.com links. Mention Intuit-style speed only if it fits..."
+          onClose={() => setSpecModalOpen(false)}
+          onSave={(text) => setBriefText(text)}
+        />
       )}
     </div>
   );
@@ -425,8 +557,7 @@ interface DeliverableRowProps {
   stageCounts: Record<string, number>;
   volumeInfo?: { targetCount: number; totalItems: number };
   pacing?: { batchSize: number; interval: string; bufferPercent?: number };
-  hasData: boolean;
-  onInspect: () => void;
+  onInspect: () => void | Promise<void>;
 }
 
 function DeliverableRow({
@@ -446,7 +577,6 @@ function DeliverableRow({
   stageCounts,
   volumeInfo,
   pacing,
-  hasData,
   onInspect,
 }: DeliverableRowProps) {
   const agentColor = AGENT_COLORS[agent] || "#888";
@@ -475,35 +605,34 @@ function DeliverableRow({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-4">
+    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
       {/* Header: agent avatar + label + agent name + volume + inspect */}
-      <div className="flex items-center gap-3.5 mb-3">
+      <div className="flex items-center gap-3 mb-2.5">
         <img
           src={`/api/agent-avatar?id=${agent}`}
           alt={agent}
-          className="w-7 h-7 rounded-full object-cover shrink-0"
-          style={{ border: `2px solid ${agentColor}` }}
+          className="w-7 h-7 rounded-full object-cover shrink-0 opacity-90"
+          style={{ border: `1px solid ${agentColor}55` }}
         />
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[13px] font-bold text-[var(--text-primary)] leading-tight">
+          <span className="text-xs font-semibold text-[var(--text-primary)] leading-tight">
             {label}
           </span>
           <span className="text-[10px] text-[var(--text-tertiary)] capitalize">
             {agent} · {volumeDisplay}
           </span>
         </div>
-        {hasData && (
-          <button
-            onClick={onInspect}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            title={itemType === "person" ? "Inspect people" : "Inspect artifacts"}
+        <button
+            type="button"
+            onClick={() => void onInspect()}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            title="Artifact history (all items in this workflow)"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
               <path d="M21 21l-4.35-4.35" />
             </svg>
           </button>
-        )}
       </div>
 
       {/* Dependency info */}
@@ -520,7 +649,7 @@ function DeliverableRow({
             return (
               <div
                 key={i}
-                className="flex items-center gap-1.5 text-[10px] text-amber-400/80"
+                className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]"
               >
                 <svg
                   width="10"
@@ -528,22 +657,23 @@ function DeliverableRow({
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="2"
                   strokeLinecap="round"
+                  className="opacity-60 shrink-0"
                 >
                   <circle cx="12" cy="12" r="10" />
                   <path d="M12 8v4l2 2" />
                 </svg>
                 <span>
                   Waits for{" "}
-                  <span className="font-semibold text-amber-300">
+                  <span className="font-medium text-[var(--text-secondary)]">
                     {depDeliverable?.label || `#${dep.deliverableIndex}`}
                   </span>
                   {" → "}
                   <span
-                    className="font-medium px-1 py-0.5 rounded text-[9px] text-white"
+                    className="font-medium px-1.5 py-0.5 rounded text-[9px] border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
                     style={{
-                      backgroundColor: depStage?.color || "#888",
+                      borderColor: depStage?.color ? `${depStage.color}40` : undefined,
                     }}
                   >
                     {depStage?.label || dep.stage}
@@ -563,25 +693,27 @@ function DeliverableRow({
             const triggerWf = triggerDel ? WORKFLOW_TYPES[triggerDel.workflowType] : null;
             const triggerStage = triggerWf?.defaultBoard?.stages.find(s => s.key === stopWhen.stage);
             return (
-              <div className="flex items-center gap-1.5 text-[10px] text-red-400/80">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="opacity-60 shrink-0">
                   <rect x="4" y="4" width="16" height="16" rx="2" />
                   <path d="M9 9h6v6H9z" />
                 </svg>
                 <span>
                   Stops when{" "}
-                  <span className="font-semibold text-red-300">
+                  <span className="font-medium text-[var(--text-secondary)]">
                     {triggerDel?.label || `#${stopWhen.deliverableIndex}`}
                   </span>
                   {" → "}
                   <span
-                    className="font-medium px-1 py-0.5 rounded text-[9px] text-white"
-                    style={{ backgroundColor: triggerStage?.color || "#888" }}
+                    className="font-medium px-1.5 py-0.5 rounded text-[9px] border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
+                    style={{
+                      borderColor: triggerStage?.color ? `${triggerStage.color}40` : undefined,
+                    }}
                   >
                     {triggerStage?.label || stopWhen.stage}
                   </span>
                   {" = "}
-                  <span className="font-bold text-red-300">{stopWhen.count}</span>
+                  <span className="font-medium text-[var(--text-secondary)]">{stopWhen.count}</span>
                 </span>
               </div>
             );
@@ -619,18 +751,15 @@ function DeliverableRow({
                 <div key={s.key} className="flex items-center gap-0.5">
                   <button
                     onClick={() => onToggleStage(s.key)}
-                    className="relative text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium transition-opacity hover:opacity-80 flex items-center gap-0.5"
+                    className="relative text-[9px] px-1.5 py-0.5 rounded-md font-medium border transition-colors flex items-center gap-0.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     style={{
-                      backgroundColor: s.color,
-                      outline: isExpanded
-                        ? "2px solid var(--text-primary)"
-                        : "none",
-                      outlineOffset: "1px",
+                      backgroundColor: `${s.color}14`,
+                      borderColor: isExpanded ? "var(--text-tertiary)" : `${s.color}35`,
                     }}
                     title={s.instructions}
                   >
                     {s.requiresHuman && (
-                      <svg width="7" height="7" viewBox="0 0 24 24" fill="white" stroke="none">
+                      <svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="opacity-70">
                         <circle cx="12" cy="7" r="4" />
                         <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
                       </svg>
@@ -638,7 +767,7 @@ function DeliverableRow({
                     {s.label}
                     {hasNote ? " *" : ""}
                     {count > 0 && (
-                      <span className="ml-0.5 inline-flex items-center justify-center min-w-[14px] h-[14px] rounded-full bg-white/30 text-[8px] font-bold">
+                      <span className="ml-0.5 inline-flex items-center justify-center min-w-[14px] h-[14px] rounded-full bg-[var(--bg-tertiary)] text-[8px] font-medium text-[var(--text-tertiary)]">
                         {count}
                       </span>
                     )}
@@ -673,12 +802,12 @@ function DeliverableRow({
         return (
           <div
             key={`detail-${s.key}`}
-            className="mt-1.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] p-2 text-[11px] leading-relaxed"
+            className="mt-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] p-2 text-[11px] leading-relaxed"
           >
             {s.requiresHuman && (
               <div className="flex items-center gap-1 mb-1.5">
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold uppercase">
-                  Human Required
+                <span className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">
+                  Human required
                 </span>
               </div>
             )}
@@ -688,15 +817,15 @@ function DeliverableRow({
             {s.requiresHuman && s.humanAction && (
               <div className="mt-1.5 pt-1.5 border-t border-[var(--border-color)]">
                 <div className="flex items-center gap-1 mb-0.5">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-[var(--text-tertiary)]">
                     <circle cx="12" cy="7" r="4" />
                     <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
                   </svg>
-                  <span className="text-[10px] font-semibold text-amber-400">
-                    Your action:
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)]">
+                    Your action
                   </span>
                 </div>
-                <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
                   {s.humanAction}
                 </p>
               </div>

@@ -55,8 +55,11 @@ export function getHistory(sessionFile: string): ChatMessage[] {
           content = entry.text;
         }
         if (!content) continue;
+        const isModel =
+          entry.role === "assistant" ||
+          entry.role === "model";
         const msg: ChatMessage = {
-          role: entry.role === "assistant" ? "model" : "user",
+          role: isModel ? "model" : "user",
           text: content,
           timestamp: entry.timestamp
             ? new Date(entry.timestamp).getTime()

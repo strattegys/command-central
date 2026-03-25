@@ -83,6 +83,11 @@ export interface PackageTemplateSpec {
   description: string;
   /** Workflows that make up this package */
   deliverables: PackageDeliverable[];
+  /**
+   * When true, Penny package card shows an editable package brief (`spec.brief`) in the header
+   * and seeds a PACKAGE_BRIEF artifact on each warm-outreach (etc.) item at activation/spawn.
+   */
+  showPackageBrief?: boolean;
 }
 
 export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
@@ -182,6 +187,7 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
     description:
       "Warm LinkedIn DMs to existing contacts (vibe coding & AI agent buildout) — one at a time, " +
       "3-message sequence, conversation mode if they reply",
+    showPackageBrief: true,
     deliverables: [
       {
         workflowType: "warm-outreach",

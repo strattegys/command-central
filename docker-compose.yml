@@ -29,14 +29,17 @@ services:
       - PORT=3001
       - HOSTNAME=0.0.0.0
       - AGENT_ROOT=/agents
-      # Writable by the node user; uploaded avatars survive container recreates
+      # Writable uploads; bind mount below survives rebuilds (named volumes were empty on fresh compose projects)
       - AVATAR_DIR=/data/agent-avatars
+      # Auth.js v5: set in web/.env.local — AUTH_SECRET (or NEXTAUTH_SECRET) and AUTH_URL=https://your-domain (see .env.local.example)
     volumes:
-      - agent_avatars:/data/agent-avatars
+      # Repo agents/ → container: sessions JSONL, prompts, memory dirs persist on the host (not wiped on image rebuild)
+      - ./agents:/agents
+      # Uploaded avatars (custom photos). Recover from old named volume: docker run --rm -v command-central_agent_avatars:/from -v "$(pwd)/docker-data/agent-avatars:/to" alpine cp -a /from/. /to/
+      - ./docker-data/agent-avatars:/data/agent-avatars
     expose:
       - "3001"
 
 volumes:
   caddy_data:
   caddy_config:
-  agent_avatars:

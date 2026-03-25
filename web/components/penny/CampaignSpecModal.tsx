@@ -8,6 +8,12 @@ interface CampaignSpecModalProps {
   initialSpec: string;
   onClose: () => void;
   onSave: (spec: string) => void;
+  /** Modal title — default "Campaign Specification" */
+  modalTitle?: string;
+  /** Short help under the title */
+  helpText?: string;
+  /** Textarea placeholder */
+  placeholder?: string;
 }
 
 export default function CampaignSpecModal({
@@ -16,6 +22,9 @@ export default function CampaignSpecModal({
   initialSpec,
   onClose,
   onSave,
+  modalTitle = "Campaign Specification",
+  helpText = "Paste the campaign specification here. Include product info, messaging guidelines, target audience, tone, and any details agents need when executing this package.",
+  placeholder = "Paste campaign specification here...",
 }: CampaignSpecModalProps) {
   const [text, setText] = useState(initialSpec);
   const [saving, setSaving] = useState(false);
@@ -73,7 +82,7 @@ export default function CampaignSpecModal({
         <div className="shrink-0 px-5 py-3 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-              Campaign Specification
+              {modalTitle}
             </h2>
             <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
               {packageName}
@@ -93,8 +102,7 @@ export default function CampaignSpecModal({
         {/* Help text */}
         <div className="shrink-0 px-5 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Paste the campaign specification here. Include product info, messaging guidelines,
-            target audience, tone, and any details agents need when executing this package.
+            {helpText}
           </p>
         </div>
 
@@ -104,7 +112,7 @@ export default function CampaignSpecModal({
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Paste campaign specification here...&#10;&#10;Example:&#10;Product: CloudSync Pro — B2B SaaS for automated data pipelines&#10;Target: CTOs and VPs of Engineering at mid-market companies (200-2000 employees)&#10;Key messaging: &quot;Stop managing pipelines, start managing growth.&quot;&#10;Tone: Professional but approachable. Avoid heavy jargon.&#10;Competitors to reference: Fivetran, Airbyte&#10;Key differentiators: 60% faster setup, no-code interface"
+            placeholder={placeholder}
             className="w-full h-full resize-none bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-4 text-sm text-[var(--text-primary)] leading-relaxed focus:outline-none focus:border-[#E67E22]/50 placeholder:text-[var(--text-tertiary)]/50"
             style={{ fontFamily: "inherit" }}
           />

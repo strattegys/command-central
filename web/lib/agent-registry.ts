@@ -97,6 +97,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     sessionFile: R("/root/.nanobot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.nanobot/system-prompt.md"),
     memoryDir: R("/root/.nanobot/memory"),
+    provider: "groq",
+    modelName: "llama-3.3-70b-versatile",
+    temperature: 0.2,
     tools: [
       "twenty_crm",
       "linkedin",
@@ -177,6 +180,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       ],
     },
     workflowTypes: ["linkedin-outreach", "warm-outreach"],
+    ttsVoice: "Timothy",
     delegation: {
       canDelegateTo: ["scout"],
       acceptsTaskTypes: ["outreach-target", "messaging-content"],

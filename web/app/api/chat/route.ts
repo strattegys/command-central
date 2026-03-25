@@ -3,6 +3,8 @@ import { chat } from "@/lib/gemini";
 import { getHistory } from "@/lib/session-store";
 import { getAgentConfig } from "@/lib/agent-config";
 
+export const runtime = "nodejs";
+
 export async function GET(request: NextRequest) {
   const agentId = request.nextUrl.searchParams.get("agent") || "tim";
   const config = getAgentConfig(agentId);

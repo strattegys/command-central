@@ -97,14 +97,17 @@ Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.
 3. **SSH tunnel** to Postgres on the droplet (port **5433** avoids local clashes):
 
    ```bash
-   ssh -L 5433:localhost:5432 root@137.184.187.233
+   # Tunnel scripts bind 0.0.0.0:5433 so Docker Desktop can reach Postgres via host.docker.internal
+   ssh -L 0.0.0.0:5433:localhost:5432 root@137.184.187.233
    ```
 
-   **Scripts:** PowerShell `scripts\crm-db-tunnel.ps1` or Git Bash `scripts/crm-db-tunnel.sh` (auto-detects `~/.ssh/` keys; override with **`SSH_IDENTITY_FILE`**).
+   **Scripts:** PowerShell `scripts\crm-db-tunnel.ps1` or Git Bash `scripts/crm-db-tunnel.sh` (default **`0.0.0.0:5433`**; set **`CRM_TUNNEL_BIND=127.0.0.1`** for loopback only). Auto-detects `~/.ssh/` keys; override with **`SSH_IDENTITY_FILE`**.
 
-   In **`.env.local`**: **`CRM_DB_HOST=127.0.0.1`**, **`CRM_DB_PORT=5433`**, plus **`CRM_DB_PASSWORD`**.
+   In **`.env.local`**: **`CRM_DB_PORT=5433`**, **`CRM_DB_PASSWORD`**, and either **`CRM_DB_HOST=host.docker.internal`** (matches compose; use with **Docker**) or rely on compose’s override. **`CRM_DB_HOST=127.0.0.1`** is only for **`npm run dev` on the host** (no Docker), not inside the dev container.
 
-4. Recreate the dev stack: `docker compose -f docker-compose.dev.yml up -d --force-recreate`
+4. With the tunnel running, verify from your PC: **`cd web && npm run check-crm-db`**.
+
+5. Recreate the dev stack: `docker compose -f docker-compose.dev.yml up -d --force-recreate`
 
 **Production (droplet) — shared Docker network (Option A, default)**
 
@@ -139,6 +142,6 @@ See **[`docker-compose.crm-network.yml`](docker-compose.crm-network.yml)** for d
 ## Key Integrations
 
 - **Twenty CRM** -- Contact management, workflows, notes (PostgreSQL via Docker)
-- **LinkedIn (Unipile)** -- Message sync, connection polling, inbound webhooks
+- **LinkedIn (Unipile)** -- Message sync, connection polling, inbound webhooks. The Next.js app reads **`UNIPILE_API_KEY`**, **`UNIPILE_DSN`** (host:port, e.g. `api32.unipile.com:16299`), and **`UNIPILE_ACCOUNT_ID`** from **`web/.env.local`** (production Docker already uses that file via `env_file`). Without them, warm-outreach enrichment shows “Unipile is not configured”. Restart **`web`** after editing.
 - **Google Gemini** -- LLM for all agents
 - **NextAuth** -- Authentication (credentials provider)

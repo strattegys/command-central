@@ -18,8 +18,10 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production PORT=3001 HOSTNAME=0.0.0.0
+# Match docker-compose default so session JSONL + prompts resolve under /agents without relying on env_file alone
+ENV AGENT_ROOT=/agents
 
-# Copy agent prompts into container for runtime loading
+# Copy agent prompts + seeded session files into container for runtime loading
 COPY agents/ /agents/
 
 COPY --from=builder /app/.next/standalone ./

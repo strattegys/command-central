@@ -1,9 +1,15 @@
 #!/bin/bash
 # LinkedIn integration via Unipile API
+#
+# Set credentials in the environment (never commit secrets):
+#   export UNIPILE_API_KEY="..." UNIPILE_DSN="api32.unipile.com:16299" UNIPILE_ACCOUNT_ID="..."
+# Or from repo root, after filling web/.env.local:
+#   set -a && . ./web/.env.local && set +a
+#
+: "${UNIPILE_API_KEY:?Set UNIPILE_API_KEY (Unipile dashboard → API)}"
+: "${UNIPILE_DSN:?Set UNIPILE_DSN (host:port from Unipile, e.g. api32.unipile.com:16299)}"
+: "${UNIPILE_ACCOUNT_ID:?Set UNIPILE_ACCOUNT_ID (LinkedIn account id in Unipile)}"
 
-UNIPILE_API_KEY="tfw41jOC.9RxHD86oBHB+7TJGVfj/yxPnghbRjDoSqrRcKZcc7Hk="
-UNIPILE_DSN="api32.unipile.com:16299"
-UNIPILE_ACCOUNT_ID="qlL7799BQ_it_e87rbBaFQ"
 BASE_URL="https://${UNIPILE_DSN}/api/v1"
 
 ACTION=$1

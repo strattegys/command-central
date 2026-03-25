@@ -15,6 +15,10 @@ import {
 } from "./linkedin-crm";
 import { triageLinkedInMessage } from "./linkedin-triage";
 import { writeNotification } from "./notifications";
+import {
+  applyWarmOutreachInboundViaResolve,
+  resolveWarmOutreachItemsForInboundMessage,
+} from "./warm-outreach-inbound-reply";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
@@ -119,6 +123,48 @@ export async function handleUnipileWebhook(
 
   writeNote(noteTitle, noteContent, "person", contactId);
 
+  // Package / warm-outreach: if this person has an item at MESSAGED, advance to Replied → Reply Draft (same as human "Replied")
+  try {
+    const itemIds = await resolveWarmOutreachItemsForInboundMessage(contactId, senderProviderId);
+    if (itemIds.length === 0) {
+      console.log(
+        `[linkedin-webhook] No warm-outreach item at MESSAGED for contact=${contactId} provider=${senderProviderId || "n/a"} (need same person.id as workflow item, or LinkedIn URL on person matching provider)`
+      );
+    }
+    if (itemIds.length > 0) {
+      const inboundNotes = [
+        "## LinkedIn inbound (Unipile webhook)",
+        "",
+        `**From:** ${senderName}`,
+        chatId ? `**Chat ID:** ${chatId}` : "",
+        "",
+        messageText.trim() || "_(empty body)_",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      let advanced = 0;
+      for (const wid of itemIds) {
+        const r = await applyWarmOutreachInboundViaResolve(wid, inboundNotes);
+        if (r.ok) advanced++;
+        else
+          console.warn(
+            `[linkedin-webhook] Warm-outreach auto-replied failed item=${wid.slice(0, 8)}…: ${r.error}`
+          );
+      }
+      if (advanced > 0) {
+        writeNotification(
+          `Warm outreach: ${senderName} replied`,
+          advanced === 1
+            ? "Moved to Reply Draft — review Tim's draft in Tasks."
+            : `${advanced} workflow items moved to Reply Draft.`,
+          "linkedin_inbound"
+        );
+      }
+    }
+  } catch (e) {
+    console.error("[linkedin-webhook] Warm-outreach inbound advance error:", e);
+  }
+
   // Triage via Tim's AI
   console.log(`[linkedin-webhook] Running triage for ${senderName}...`);
   const triage = await triageLinkedInMessage(
@@ -147,7 +193,7 @@ export async function handleUnipileWebhook(
   if (!hasWorkflow) {
     // Non-workflow: Tim proactively messages Govind
     try {
-      const { autonomousChat } = await import("./gemini");
+      const { agentAutonomousChat } = await import("./agent-llm");
       const prompt = [
         `[LINKEDIN INBOUND — Notify Govind]`,
         ``,
@@ -163,7 +209,7 @@ export async function handleUnipileWebhook(
         .filter(Boolean)
         .join("\n");
 
-      await autonomousChat("tim", prompt);
+      await agentAutonomousChat("tim", prompt);
     } catch (err) {
       console.error("[linkedin-webhook] Tim autonomous notification failed:", err);
     }

@@ -21,17 +21,20 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const stages = template.defaultBoard.stages;
 
+  const typeColor = ITEM_TYPE_COLORS[template.itemType] || "#6b7280";
+
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3.5 space-y-2.5">
+    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3 space-y-2">
       {/* Header row: label + badges */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-[var(--text-primary)]">
+        <span className="text-xs font-semibold text-[var(--text-primary)]">
           {template.label}
         </span>
-        <span
-          className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium"
-          style={{ backgroundColor: ITEM_TYPE_COLORS[template.itemType] || "#555" }}
-        >
+        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] inline-flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: typeColor, opacity: 0.75 }}
+          />
           {ITEM_TYPE_LABELS[template.itemType] || template.itemType}
         </span>
         <span className="text-[10px] text-[var(--text-tertiary)] font-mono ml-auto">
@@ -40,7 +43,7 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
       </div>
 
       {/* Description */}
-      <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2">
+      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed line-clamp-2">
         {template.description}
       </p>
 
@@ -52,16 +55,15 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
             <div key={s.key} className="flex items-center gap-1">
               <button
                 onClick={() => setExpandedStage(isExpanded ? null : s.key)}
-                className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium transition-opacity hover:opacity-80 flex items-center gap-0.5"
+                className="text-[9px] px-1.5 py-0.5 rounded-md font-medium border transition-colors flex items-center gap-0.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 style={{
-                  backgroundColor: s.color,
-                  outline: isExpanded ? "2px solid var(--text-primary)" : "none",
-                  outlineOffset: "1px",
+                  backgroundColor: `${s.color}14`,
+                  borderColor: isExpanded ? "var(--text-tertiary)" : `${s.color}35`,
                 }}
                 title={s.instructions}
               >
                 {s.requiresHuman && (
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="white" stroke="none">
+                  <svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="opacity-70">
                     <circle cx="12" cy="7" r="4" />
                     <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
                   </svg>
@@ -92,18 +94,18 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
         const stage = stages.find((s) => s.key === expandedStage);
         if (!stage) return null;
         return (
-          <div className="rounded bg-[var(--bg-primary)] border border-[var(--border-color)] p-2.5">
+          <div className="rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] p-2">
             <div className="flex items-center gap-1.5 mb-1.5">
               <span
-                className="w-2 h-2 rounded-full shrink-0"
+                className="w-1.5 h-1.5 rounded-full shrink-0 opacity-70"
                 style={{ backgroundColor: stage.color }}
               />
-              <span className="text-[11px] font-semibold text-[var(--text-primary)]">
+              <span className="text-[11px] font-medium text-[var(--text-primary)]">
                 {stage.label}
               </span>
               {stage.requiresHuman && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold uppercase">
-                  Human Required
+                <span className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">
+                  Human required
                 </span>
               )}
               <span className="text-[10px] text-[var(--text-tertiary)] font-mono ml-auto">
@@ -116,15 +118,15 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
             {stage.requiresHuman && stage.humanAction && (
               <div className="mt-2 pt-2 border-t border-[var(--border-color)]">
                 <div className="flex items-center gap-1 mb-1">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-[var(--text-tertiary)]">
                     <circle cx="12" cy="7" r="4" />
                     <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
                   </svg>
-                  <span className="text-[10px] font-semibold text-amber-400">
-                    Your action:
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)]">
+                    Your action
                   </span>
                 </div>
-                <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
                   {stage.humanAction}
                 </p>
               </div>
