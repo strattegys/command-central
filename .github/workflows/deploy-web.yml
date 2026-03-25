@@ -71,6 +71,14 @@ jobs:
             fi
           done
 
+          # If UFW is enabled, allow Caddy (Docker publishes 80/443 on the host).
+          if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+            echo "UFW is active — ensuring inbound HTTP/HTTPS..."
+            ufw allow 80/tcp
+            ufw allow 443/tcp
+            ufw reload || true
+          fi
+
           # Build and restart containers
           echo "Building Docker images..."
           docker compose build --no-cache web
