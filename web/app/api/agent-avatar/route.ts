@@ -3,9 +3,10 @@ import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { getAgentSpec } from "@/lib/agent-registry";
 
-// Single persistent directory for all agent avatars.
-// Lives outside the project so deploys never wipe it.
-const AVATAR_DIR = process.env.AVATAR_DIR || "/root/.agent-avatars";
+// Persistent avatar uploads. Docker Compose sets AVATAR_DIR=/data/agent-avatars (mounted volume).
+// Default /tmp/... avoids EACCES when the process user cannot read /root.
+const AVATAR_DIR =
+  process.env.AVATAR_DIR || "/tmp/agent-avatars";
 
 export async function POST(req: NextRequest) {
   try {

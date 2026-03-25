@@ -23,6 +23,7 @@ export const config = {
      * - /_next (Next.js internals)
      * - /favicon.ico, /sw.js, static files
      */
-    "/((?!login|api/auth|api/webhooks|_next|favicon\\.ico|sw\\.js|.*\\.).*)",
+    // api/agent-avatar must stay public: <img src> requests often omit auth cookies in edge cases; a redirect breaks icons.
+    "/((?!login|api/auth|api/webhooks|api/agent-avatar|_next|favicon\\.ico|sw\\.js|.*\\.).*)",
   ],
 };

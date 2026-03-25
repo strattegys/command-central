@@ -21,14 +21,22 @@ services:
       dockerfile: web/Dockerfile
     restart: unless-stopped
     env_file: ./web/.env.local
+    # Reach Postgres (Twenty CRM) bound on the droplet host — 127.0.0.1 inside the container is NOT the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NODE_ENV=production
       - PORT=3001
       - HOSTNAME=0.0.0.0
       - AGENT_ROOT=/agents
+      # Writable by the node user; uploaded avatars survive container recreates
+      - AVATAR_DIR=/data/agent-avatars
+    volumes:
+      - agent_avatars:/data/agent-avatars
     expose:
       - "3001"
 
 volumes:
   caddy_data:
   caddy_config:
+  agent_avatars:

@@ -2,6 +2,12 @@ import { devQuery, devTransaction } from "./dev-store";
 
 const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
 
+if (process.env.NODE_ENV === "production" && USE_DEV_STORE) {
+  console.warn(
+    "[db] CRM_DB_PASSWORD is unset — using empty .dev-store JSON. Set CRM_DB_* + CRM_DB_HOST=host.docker.internal in web/.env.local for real CRM data."
+  );
+}
+
 // Lazy-init pool only when we have a real DB
 let _pool: import("pg").Pool | null = null;
 function getPool(): import("pg").Pool {
