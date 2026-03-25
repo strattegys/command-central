@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PunchListCard, { type PunchListItem } from "./PunchListCard";
 import { panelBus } from "@/lib/events";
 
@@ -13,15 +13,22 @@ const FILTER_TO_STATUS: Record<string, "open" | "done" | undefined> = {
   Done: "done",
 };
 
+const RANK_LABELS: Record<number, string> = {
+  1: "NOW",
+  2: "LATER",
+  3: "NEXT",
+  4: "SOMETIME",
+  5: "BACKLOG",
+  6: "IDEA",
+};
+
 const RANK_COLORS: Record<number, string> = {
   1: "#EF4444",
   2: "#F97316",
   3: "#F59E0B",
-  4: "#EAB308",
-  5: "#84CC16",
-  6: "#22C55E",
-  7: "#6366F1",
-  8: "#9CA3AF",
+  4: "#84CC16",
+  5: "#6366F1",
+  6: "#9CA3AF",
 };
 
 interface SuziPunchListPanelProps {
@@ -37,7 +44,6 @@ export default function SuziPunchListPanel({
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedRanks, setSelectedRanks] = useState<Set<number>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_punchlist_filter");
@@ -52,6 +58,12 @@ export default function SuziPunchListPanel({
     }
     return "";
   });
+
+  // Drag state
+  const [dragItemId, setDragItemId] = useState<string | null>(null);
+  const [dropTargetRank, setDropTargetRank] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dragRef = useRef<{ itemId: string; sourceRank: number } | null>(null);
 
   // Persist filter state
   useEffect(() => {
@@ -100,50 +112,149 @@ export default function SuziPunchListPanel({
     return unsub;
   }, [fetchItems, fetchCategories]);
 
-  // Filter items by rank client-side
-  const filteredItems = selectedRanks.size > 0
-    ? items.filter((item) => selectedRanks.has(item.rank))
-    : items;
+  // Group items by rank for Kanban columns
+  const rankGroups = new Map<number, PunchListItem[]>();
+  for (const item of items) {
+    const group = rankGroups.get(item.rank) || [];
+    group.push(item);
+    rankGroups.set(item.rank, group);
+  }
+  const sortedRanks = [...rankGroups.keys()].sort((a, b) => a - b);
 
-  // Status counts from filtered items
-  const statusCounts: Record<string, number> = { All: filteredItems.length };
-  for (const item of filteredItems) {
+  // Status counts
+  const statusCounts: Record<string, number> = { All: items.length };
+  for (const item of items) {
     statusCounts[item.status === "open" ? "Open" : "Done"] =
       (statusCounts[item.status === "open" ? "Open" : "Done"] || 0) + 1;
   }
 
-  // Category counts from active (open) items only
+  // Category counts
   const categoryCounts: Record<string, number> = {};
   for (const item of items) {
     if (item.category && item.status === "open") {
       categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1;
     }
   }
-  // Only show categories that have active items
   const activeCategories = categories.filter((cat) => categoryCounts[cat] > 0);
 
-  // Available ranks from items
-  const availableRanks = [...new Set(items.map((i) => i.rank))].sort((a, b) => a - b);
+  // ── Drag and Drop handlers ──
 
-  const toggleRank = (rank: number) => {
-    setSelectedRanks((prev) => {
-      const next = new Set(prev);
-      if (next.has(rank)) next.delete(rank);
-      else next.add(rank);
-      return next;
+  const handleDragStart = (e: React.DragEvent, item: PunchListItem) => {
+    setDragItemId(item.id);
+    dragRef.current = { itemId: item.id, sourceRank: item.rank };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", item.id);
+  };
+
+  const handleDragEnd = () => {
+    setDragItemId(null);
+    setDropTargetRank(null);
+    setDropIndex(null);
+    dragRef.current = null;
+  };
+
+  const handleColumnDragOver = (e: React.DragEvent, rank: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropTargetRank(rank);
+
+    // Find which card we're hovering over to determine insert index
+    const column = e.currentTarget as HTMLElement;
+    const cards = column.querySelectorAll("[data-punch-id]");
+    let insertIdx = cards.length; // default: append at end
+
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        insertIdx = i;
+        break;
+      }
+    }
+    setDropIndex(insertIdx);
+  };
+
+  const handleColumnDragLeave = (e: React.DragEvent) => {
+    // Only clear if leaving the column entirely
+    const related = e.relatedTarget as HTMLElement | null;
+    if (!related || !e.currentTarget.contains(related)) {
+      setDropTargetRank(null);
+      setDropIndex(null);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetRank: number) => {
+    e.preventDefault();
+    const itemId = e.dataTransfer.getData("text/plain");
+    if (!itemId || !dragRef.current) return;
+
+    const targetColumn = [...(rankGroups.get(targetRank) || [])];
+    const sourceRank = dragRef.current.sourceRank;
+
+    // Remove from source if same column
+    const draggedItem = items.find((i) => i.id === itemId);
+    if (!draggedItem) return;
+
+    // Build new column order
+    const filtered = targetColumn.filter((i) => i.id !== itemId);
+    const insertAt = Math.min(dropIndex ?? filtered.length, filtered.length);
+    filtered.splice(insertAt, 0, draggedItem);
+
+    // Optimistic update
+    setItems((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id === itemId) {
+          return { ...item, rank: targetRank };
+        }
+        return item;
+      });
+      return updated;
     });
+
+    // Persist: send bulk reorder for the target column
+    const reorder = filtered.map((item, idx) => ({
+      id: item.id,
+      rank: targetRank,
+      sortOrder: idx,
+    }));
+
+    // If moving between columns, also reorder the source column
+    if (sourceRank !== targetRank) {
+      const sourceColumn = (rankGroups.get(sourceRank) || []).filter((i) => i.id !== itemId);
+      sourceColumn.forEach((item, idx) => {
+        reorder.push({ id: item.id, rank: sourceRank, sortOrder: idx });
+      });
+    }
+
+    try {
+      await fetch("/api/punch-list", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reorder }),
+      });
+      // Refetch to get authoritative order
+      fetchItems();
+    } catch {
+      // Revert on failure
+      fetchItems();
+    }
+
+    setDragItemId(null);
+    setDropTargetRank(null);
+    setDropIndex(null);
+    dragRef.current = null;
   };
 
   return (
     <div className={embedded ? "flex-1 flex flex-col overflow-hidden min-w-0" : "flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0"}>
-      {/* Header — hidden when embedded in reminders panel */}
+      {/* Header — hidden when embedded */}
       {!embedded && (
         <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
           <span className="text-xs font-semibold text-[var(--text-primary)]">
             Punch List
           </span>
           <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${filteredItems.length} items`}
+            {loading ? "Loading..." : `${items.length} items`}
           </span>
         </div>
       )}
@@ -152,7 +263,7 @@ export default function SuziPunchListPanel({
       {embedded && (
         <div className="shrink-0 px-3 py-1.5 border-b border-[var(--border-color)] flex items-center">
           <span className="text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${filteredItems.length} items`}
+            {loading ? "Loading..." : `${items.length} items`}
           </span>
         </div>
       )}
@@ -225,48 +336,15 @@ export default function SuziPunchListPanel({
         </div>
       )}
 
-      {/* Rank filter */}
-      {availableRanks.length > 0 && (
-        <div className="shrink-0 px-3 py-1.5 flex items-center gap-1 border-b border-[var(--border-color)]">
-          <span className="text-[9px] text-[var(--text-tertiary)] mr-1">Rank</span>
-          {availableRanks.map((rank) => (
-            <button
-              key={rank}
-              onClick={() => toggleRank(rank)}
-              className="text-[10px] w-5 h-5 rounded cursor-pointer transition-all flex items-center justify-center font-medium"
-              style={{
-                backgroundColor: selectedRanks.has(rank)
-                  ? RANK_COLORS[rank] || "#9CA3AF"
-                  : "var(--bg-secondary)",
-                color: selectedRanks.has(rank) ? "#fff" : RANK_COLORS[rank] || "#9CA3AF",
-                border: selectedRanks.has(rank)
-                  ? "none"
-                  : `1px solid ${RANK_COLORS[rank] || "#9CA3AF"}44`,
-              }}
-            >
-              {rank}
-            </button>
-          ))}
-          {selectedRanks.size > 0 && (
-            <button
-              onClick={() => setSelectedRanks(new Set())}
-              className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] ml-1 cursor-pointer"
-            >
-              clear
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Item list */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      {/* Kanban board — horizontal columns by rank */}
+      <div className="flex-1 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <p className="text-sm text-[var(--text-tertiary)]">
               Loading punch list...
             </p>
           </div>
-        ) : items.length === 0 ? (
+        ) : sortedRanks.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <p className="text-sm text-[var(--text-tertiary)]">
@@ -282,12 +360,98 @@ export default function SuziPunchListPanel({
             </div>
           </div>
         ) : (
-          filteredItems.map((item) => (
-            <PunchListCard
-              key={item.id}
-              item={item}
-            />
-          ))
+          <div className="flex gap-2 p-2 h-full">
+            {sortedRanks.map((rank) => {
+              const rankItems = rankGroups.get(rank) || [];
+              const color = RANK_COLORS[rank] || "#9CA3AF";
+              const label = RANK_LABELS[rank] || `Rank ${rank}`;
+              const isDropTarget = dropTargetRank === rank;
+              return (
+                <div
+                  key={rank}
+                  className={`flex flex-col flex-1 min-w-0 rounded-lg border transition-colors ${
+                    isDropTarget
+                      ? "border-[var(--accent-green)] bg-[var(--accent-green)]/5"
+                      : "border-[var(--border-color)] bg-[var(--bg-secondary)]"
+                  }`}
+                >
+                  {/* Column header */}
+                  <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-center gap-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ background: color }}
+                    />
+                    <span
+                      className="text-[11px] font-semibold truncate"
+                      style={{ color }}
+                    >
+                      {label}
+                    </span>
+                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto shrink-0">
+                      {rankItems.length}
+                    </span>
+                  </div>
+
+                  {/* Cards — drop zone */}
+                  <div
+                    className="flex-1 overflow-y-auto p-2 space-y-2"
+                    onDragOver={(e) => handleColumnDragOver(e, rank)}
+                    onDragLeave={handleColumnDragLeave}
+                    onDrop={(e) => handleDrop(e, rank)}
+                  >
+                    {rankItems.map((item, idx) => (
+                      <div key={item.id}>
+                        {/* Drop indicator line */}
+                        {isDropTarget && dropIndex === idx && dragItemId !== item.id && (
+                          <div className="h-0.5 bg-[var(--accent-green)] rounded-full mb-2 mx-1" />
+                        )}
+                        <div
+                          data-punch-id={item.id}
+                          draggable
+                          onDragStart={(e) => {
+                            // Only allow drag from the handle
+                            const target = e.target as HTMLElement;
+                            if (!target.closest("[data-drag-handle]")) {
+                              e.preventDefault();
+                              return;
+                            }
+                            handleDragStart(e, item);
+                          }}
+                          onDragEnd={handleDragEnd}
+                          className={`relative transition-opacity ${
+                            dragItemId === item.id ? "opacity-30" : ""
+                          }`}
+                        >
+                          {/* Drag handle */}
+                          <div
+                            data-drag-handle
+                            className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                              <circle cx="3" cy="2" r="1" /><circle cx="7" cy="2" r="1" />
+                              <circle cx="3" cy="5" r="1" /><circle cx="7" cy="5" r="1" />
+                              <circle cx="3" cy="8" r="1" /><circle cx="7" cy="8" r="1" />
+                            </svg>
+                          </div>
+                          <PunchListCard item={item} />
+                        </div>
+                      </div>
+                    ))}
+                    {/* Drop indicator at end */}
+                    {isDropTarget && dropIndex === rankItems.length && (
+                      <div className="h-0.5 bg-[var(--accent-green)] rounded-full mx-1" />
+                    )}
+                    {/* Empty column drop target */}
+                    {rankItems.length === 0 && (
+                      <div className="flex items-center justify-center h-16 text-[10px] text-[var(--text-tertiary)] border border-dashed border-[var(--border-color)] rounded-lg">
+                        Drop here
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

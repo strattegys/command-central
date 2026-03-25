@@ -171,7 +171,7 @@ ${messages.slice(-100).join("\n")}`;
     let result: string | undefined;
 
     if (agentConfig.provider === "anthropic") {
-      // Use Claude for Anthropic agents (e.g. Suzi)
+      // Use Claude for Anthropic agents
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
       const response = await client.messages.create({
@@ -181,6 +181,26 @@ ${messages.slice(-100).join("\n")}`;
       });
       const block = response.content[0];
       result = block.type === "text" ? block.text : undefined;
+    } else if (agentConfig.provider === "groq") {
+      // Use Groq for Groq agents (e.g. Suzi)
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) throw new Error("GROQ_API_KEY not set");
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: agentConfig.modelName || "llama-3.3-70b-versatile",
+          max_tokens: 1024,
+          temperature: 0.3,
+          messages: [{ role: "user", content: consolidationPrompt }],
+        }),
+      });
+      if (!res.ok) throw new Error(`Groq consolidation error ${res.status}`);
+      const data = await res.json();
+      result = data.choices?.[0]?.message?.content ?? undefined;
     } else {
       // Use Gemini for Gemini agents (default)
       const { GoogleGenAI } = await import("@google/genai");

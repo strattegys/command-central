@@ -23,8 +23,8 @@ export type ToolId =
   | "package_manager"
   | "punch_list"
   | "notes"
-  | "beehiiv"
-  | "publish_article";
+  | "publish_article"
+  | "article_builder";
 
 // ─── Agent Categories ───
 
@@ -158,7 +158,7 @@ export interface AgentSpec {
 
   // ── Provider ──
   /** LLM provider: "gemini" (default) or "anthropic" */
-  provider?: "gemini" | "anthropic";
+  provider?: "gemini" | "anthropic" | "groq";
 
   // ── Delegation ──
   /** Inter-agent delegation configuration */

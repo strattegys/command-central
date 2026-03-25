@@ -22,8 +22,8 @@ import workflowItems from "./workflow-items";
 import packageManager from "./package-manager";
 import punchListTool from "./punch-list-tool";
 import notesTool from "./notes-tool";
-import beehiivTool from "./beehiiv";
 import publishArticle from "./publish-article";
+import articleBuilder from "./article-builder";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 export const TOOL_REGISTRY: Record<string, ToolModule> = {
@@ -39,8 +39,8 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   package_manager: packageManager,
   punch_list: punchListTool,
   notes: notesTool,
-  beehiiv: beehiivTool,
   publish_article: publishArticle,
+  article_builder: articleBuilder,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────

@@ -22,14 +22,9 @@ interface PackageRow {
   workflowCount: number;
 }
 
-const COLUMNS = [
-  { key: "DRAFT", label: "Draft", color: "#6b8a9e" },
-  { key: "PENDING_APPROVAL", label: "Testing", color: "#D4A017" },
-] as const;
-
 const POLL_INTERVAL = 5000;
 
-type Tab = "packages" | "testing" | "pkg-templates" | "wf-templates";
+type Tab = "packages" | "pkg-templates" | "wf-templates";
 
 interface PennyDashboardPanelProps {
   onClose: () => void;
@@ -39,21 +34,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   const [tab, setTab] = useState<Tab>("packages");
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [testingCount, setTestingCount] = useState(0);
   const mountedRef = useRef(true);
-
-  // Poll for testing task count
-  useEffect(() => {
-    const check = () => {
-      fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL")
-        .then((r) => r.json())
-        .then((d) => { if (mountedRef.current) setTestingCount(d.count || 0); })
-        .catch(() => {});
-    };
-    check();
-    const iv = setInterval(check, 5000);
-    return () => clearInterval(iv);
-  }, []);
 
   const pkgTemplates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
   const wfTemplates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
@@ -91,11 +72,6 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
       count: loading ? "..." : `${packages.length}`,
     },
     {
-      key: "testing",
-      label: "Testing",
-      count: testingCount > 0 ? `${testingCount}` : undefined,
-    },
-    {
       key: "pkg-templates",
       label: "Package Templates",
       count: `${pkgTemplates.length}`,
@@ -107,9 +83,12 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
     },
   ];
 
+  const draftPackages = packages.filter((p) => p.stage.toUpperCase() === "DRAFT");
+  const testingPackages = packages.filter((p) => p.stage.toUpperCase() === "PENDING_APPROVAL");
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header with tabs */}
+      {/* Header with tabs — v2 layout */}
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
         {TABS.map((t) => (
           <button
@@ -123,10 +102,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
           >
             {t.label}
             {t.count && (
-              <span
-                className={`text-[10px] font-bold ${t.key === "testing" ? "bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full" : ""}`}
-                style={t.key !== "testing" ? { color: "var(--text-tertiary)" } : undefined}
-              >
+              <span style={{ color: "var(--text-tertiary)" }} className="text-[10px] font-bold">
                 {t.count}
               </span>
             )}
@@ -135,9 +111,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
       </div>
 
       {/* Tab content */}
-      {tab === "testing" ? (
-        <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" />
-      ) : tab === "wf-templates" ? (
+      {tab === "wf-templates" ? (
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
           {wfTemplates.length === 0 ? (
             <div className="flex-1 flex items-center justify-center py-12">
@@ -200,49 +174,118 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
           </p>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 flex overflow-x-auto">
-          {COLUMNS.map((col) => {
-            const colPackages = packages.filter(
-              (p) => p.stage.toUpperCase() === col.key
-            );
-            return (
-              <div
-                key={col.key}
-                className="flex-1 min-w-[220px] flex flex-col border-r border-[var(--border-color)] last:border-r-0"
-              >
-                {/* Column header */}
-                <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: col.color }}
-                  />
-                  <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
-                    {col.label}
-                  </span>
-                  {colPackages.length > 0 && (
-                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">
-                      {colPackages.length}
-                    </span>
-                  )}
+        /* ── Two-column board: Draft (40%) | Testing (60%) ── */
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {/* Draft column — 40% */}
+          <div className="flex flex-col border-r border-[var(--border-color)]" style={{ width: "40%" }}>
+            <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#6b8a9e" }} />
+              <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+                Draft
+              </span>
+              {draftPackages.length > 0 && (
+                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{draftPackages.length}</span>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+              {draftPackages.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
                 </div>
+              ) : (
+                draftPackages.map((pkg) => (
+                  <PackageDetailCard key={pkg.id} pkg={pkg} />
+                ))
+              )}
+            </div>
+          </div>
 
-                {/* Cards */}
-                <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-                  {colPackages.length === 0 ? (
-                    <div className="flex items-center justify-center py-8">
-                      <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
-                    </div>
-                  ) : (
-                    colPackages.map((pkg) => (
-                      <PackageDetailCard key={pkg.id} pkg={pkg} />
-                    ))
-                  )}
+          {/* Testing column — 60% */}
+          <div className="flex flex-col" style={{ width: "60%" }}>
+            <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#D4A017" }} />
+              <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+                Testing
+              </span>
+              {testingPackages.length > 0 && (
+                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{testingPackages.length}</span>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5">
+              {testingPackages.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-[10px] text-[var(--text-tertiary)]">No packages in testing</span>
                 </div>
-              </div>
-            );
-          })}
+              ) : (
+                testingPackages.map((pkg) => (
+                  <div key={pkg.id} className="space-y-2">
+                    {/* Package card */}
+                    <PackageDetailCard pkg={pkg} />
+
+                    {/* Tasks + Logs side by side */}
+                    <div className="flex gap-1.5 min-h-[300px]">
+                      {/* Tasks — left 60% */}
+                      <div style={{ width: "60%" }} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col">
+                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)]">
+                          <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">Tasks</span>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" compact />
+                        </div>
+                      </div>
+
+                      {/* Logs — right 40% */}
+                      <div style={{ width: "40%" }} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col">
+                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)]">
+                          <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">Logs</span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2">
+                          <SimLogViewer packageId={pkg.id} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Reads simLog from sessionStorage for a given packageId */
+function SimLogViewer({ packageId }: { packageId: string }) {
+  const [log, setLog] = useState<string[]>([]);
+
+  useEffect(() => {
+    const read = () => {
+      try {
+        const saved = sessionStorage.getItem(`simLog-${packageId}`);
+        if (saved) setLog(JSON.parse(saved));
+      } catch {}
+    };
+    read();
+    const iv = setInterval(read, 2000);
+    return () => clearInterval(iv);
+  }, [packageId]);
+
+  if (log.length === 0) {
+    return (
+      <div className="text-[10px] text-[var(--text-tertiary)] text-center py-4">
+        No logs yet — start a test to see activity
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {log.map((line, i) => (
+        <div key={i} className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
+          {line}
+        </div>
+      ))}
     </div>
   );
 }

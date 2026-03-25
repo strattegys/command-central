@@ -5,6 +5,7 @@ import {
   addPunchListItem,
   updatePunchListItem,
   deletePunchListItem,
+  reorderPunchListItems,
 } from "@/lib/punch-list";
 
 export async function GET(request: NextRequest) {
@@ -52,6 +53,13 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
+
+    // Bulk reorder: { reorder: [{ id, rank, sortOrder }, ...] }
+    if (body.reorder && Array.isArray(body.reorder)) {
+      await reorderPunchListItems(body.reorder);
+      return NextResponse.json({ success: true });
+    }
+
     const { id, ...updates } = body;
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages: ["node-cron", "pg"],
+  serverExternalPackages: ["node-cron", "pg", "@anthropic-ai/sdk"],
   headers: async () => [
     {
       source: "/_next/static/chunks/:path*",

@@ -1,7 +1,7 @@
 #!/bin/bash
 # LinkedIn integration via Unipile API
 
-UNIPILE_API_KEY="dIKi/nqp.WSkPX6pJBmPl4nKfI1VnYniXPz8h0dPOIGXA1dKeOcM="
+UNIPILE_API_KEY="tfw41jOC.9RxHD86oBHB+7TJGVfj/yxPnghbRjDoSqrRcKZcc7Hk="
 UNIPILE_DSN="api32.unipile.com:16299"
 UNIPILE_ACCOUNT_ID="qlL7799BQ_it_e87rbBaFQ"
 BASE_URL="https://${UNIPILE_DSN}/api/v1"

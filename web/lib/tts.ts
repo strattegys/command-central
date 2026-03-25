@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ELEVENLABS_API = "https://api.elevenlabs.io/v1";
+const INWORLD_TTS_API = "https://api.inworld.ai/tts/v1/voice";
 
 /**
  * Summarize a long response into a concise spoken blurb using Gemini Flash.
@@ -30,44 +30,51 @@ ${text}`,
 }
 
 /**
- * Stream TTS audio from ElevenLabs.
+ * Synthesize TTS audio via Inworld API.
  * Returns a ReadableStream of mp3 chunks — pipe directly to the client response.
  */
 export async function textToSpeechStream(text: string): Promise<ReadableStream<Uint8Array>> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID;
-
-  if (!apiKey || !voiceId) {
-    throw new Error("ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must be set");
+  const apiKey = process.env.INWORLD_TTS_KEY;
+  if (!apiKey) {
+    throw new Error("INWORLD_TTS_KEY must be set");
   }
 
-  const res = await fetch(`${ELEVENLABS_API}/text-to-speech/${voiceId}/stream`, {
+  const voiceId = process.env.INWORLD_VOICE_ID || "Kelsey";
+
+  const res = await fetch(INWORLD_TTS_API, {
     method: "POST",
     headers: {
-      "xi-api-key": apiKey,
+      Authorization: `Basic ${apiKey}`,
       "Content-Type": "application/json",
-      Accept: "audio/mpeg",
     },
     body: JSON.stringify({
       text,
-      model_id: "eleven_turbo_v2_5",
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0.0,
-        use_speaker_boost: true,
+      voiceId,
+      modelId: "inworld-tts-1.5-max",
+      audioConfig: {
+        audioEncoding: "MP3",
+        sampleRateHertz: 22050,
       },
     }),
   });
 
   if (!res.ok) {
     const err = await res.text().catch(() => "Unknown error");
-    throw new Error(`ElevenLabs API error ${res.status}: ${err}`);
+    throw new Error(`Inworld TTS error ${res.status}: ${err}`);
   }
 
-  if (!res.body) {
-    throw new Error("No response body from ElevenLabs");
+  const data = await res.json();
+  if (!data.audioContent) {
+    throw new Error("No audioContent in Inworld response");
   }
 
-  return res.body as ReadableStream<Uint8Array>;
+  // Inworld returns base64-encoded audio — decode to binary stream
+  const audioBytes = Buffer.from(data.audioContent, "base64");
+
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(audioBytes));
+      controller.close();
+    },
+  });
 }

@@ -175,6 +175,24 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
       },
     ],
   },
+  // ─── AI Article (Ghost-only — single article, no outreach) ────────────────
+  "ai-article": {
+    id: "ai-article",
+    label: "AI Article",
+    description:
+      "Single article creation using Ghost's AI article builder. " +
+      "Ghost builds a campaign spec from a short idea, researches the topic, " +
+      "generates the article via Claude Opus, and publishes to strattegys.com.",
+    deliverables: [
+      {
+        workflowType: "content-pipeline",
+        ownerAgent: "ghost",
+        targetCount: 1,
+        label: "Article Creation",
+        // No pacing — single article, sequential stages
+      },
+    ],
+  },
 };
 
 /** Look up a package template by ID. Returns undefined if not found. */

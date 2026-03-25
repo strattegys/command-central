@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import Anthropic from "@anthropic-ai/sdk";
+
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 /**
  * POST /api/crm/human-tasks/resolve
@@ -76,6 +79,20 @@ export async function POST(req: NextRequest) {
     const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
     const wfTypeId = wfSpec?.workflowType;
     const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
+
+    // Check useFakeData flag from the package
+    let useFakeData = true;
+    if (wf.packageId) {
+      const pkgRows = await query<{ spec: { useFakeData?: boolean } }>(
+        `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [wf.packageId]
+      );
+      if (pkgRows.length > 0) {
+        const pkgSpec = typeof pkgRows[0].spec === "string" ? JSON.parse(pkgRows[0].spec) : pkgRows[0].spec;
+        useFakeData = pkgSpec?.useFakeData !== false; // default true
+        console.log(`[resolve] Package ${wf.packageId} useFakeData raw=${pkgSpec?.useFakeData} resolved=${useFakeData}`);
+      }
+    }
 
     // 2. Determine next stage
     let targetStage = nextStage;
@@ -153,14 +170,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Activity log for the UI
+    const logs: string[] = [];
+    logs.push(`Task resolved: ${item.stage} → ${targetStage} (${action})`);
+
     // 4. Advance the item
     await query(
       `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
       [targetStage, itemId]
     );
 
-    // 5. Auto-generate artifacts for agent-owned stages (simulation)
-    await generateStageArtifact(itemId, item.workflowId, targetStage, wfType, wf.name);
+    // 5. Auto-generate artifacts for agent-owned stages
+    logs.push(`Generating artifact for ${targetStage}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
+    await generateStageArtifact(itemId, item.workflowId, targetStage, wfType, wf.name, useFakeData);
+    logs.push(`✓ Artifact created for ${targetStage}`);
 
     // 5b. Auto-publish to Beehiiv when entering DRAFT_PUBLISHED (content-pipeline)
     if (targetStage === "DRAFT_PUBLISHED" && wfTypeId === "content-pipeline") {
@@ -195,9 +218,12 @@ export async function POST(req: NextRequest) {
         if (visited.has(nextStageKey)) break;
         visited.add(nextStageKey);
         autoAdvances.push(`${currentStage} → ${nextStageKey}`);
+        logs.push(`Auto-advancing: ${currentStage} → ${nextStageKey}`);
 
         // Generate artifact for the current agent stage
-        await generateStageArtifact(itemId, item.workflowId, currentStage, wfType, wf.name);
+        logs.push(`Generating artifact for ${currentStage}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
+        await generateStageArtifact(itemId, item.workflowId, currentStage, wfType, wf.name, useFakeData);
+        logs.push(`✓ Artifact created for ${currentStage}`);
 
         // Advance
         await query(
@@ -206,7 +232,9 @@ export async function POST(req: NextRequest) {
         );
 
         // Generate artifact for the new stage too
-        await generateStageArtifact(itemId, item.workflowId, nextStageKey, wfType, wf.name);
+        logs.push(`Generating artifact for ${nextStageKey}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
+        await generateStageArtifact(itemId, item.workflowId, nextStageKey, wfType, wf.name, useFakeData);
+        logs.push(`✓ Artifact created for ${nextStageKey}`);
 
         currentStage = nextStageKey;
         finalStage = nextStageKey;
@@ -237,7 +265,7 @@ export async function POST(req: NextRequest) {
           `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
           ["MESSAGE_DRAFT", itemId]
         );
-        await generateStageArtifact(itemId, item.workflowId, "MESSAGE_DRAFT", wfType, wf.name);
+        await generateStageArtifact(itemId, item.workflowId, "MESSAGE_DRAFT", wfType, wf.name, useFakeData);
         finalStage = "MESSAGE_DRAFT";
         autoAdvances.push(`MESSAGED → MESSAGE_DRAFT (message ${messageCount + 1}/3)`);
       }
@@ -258,6 +286,7 @@ export async function POST(req: NextRequest) {
       action,
       autoAdvances: autoAdvances.length > 0 ? autoAdvances : undefined,
       handoffs,
+      logs,
     });
   } catch (error) {
     console.error("[resolve] error:", error);
@@ -357,7 +386,7 @@ async function checkHandoffs(
 
         // Generate the post draft artifact
         if (postItemId) {
-          await generateStageArtifact(postItemId, sibling.id, "POST_DRAFTED", distType, sibling.name);
+          await generateStageArtifact(postItemId, sibling.id, "POST_DRAFTED", distType, sibling.name, true);
         }
       }
       handoffs.push({ targetWorkflow: sibling.name, stage: `CONN_MSG_DRAFTED + ${targetCount} posts` });
@@ -442,7 +471,7 @@ async function checkHandoffs(
             `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
             ["INITIATED", newItemId]
           );
-          await generateStageArtifact(newItemId, sibling.id, "INITIATED", outreachType, sibling.name);
+          await generateStageArtifact(newItemId, sibling.id, "INITIATED", outreachType, sibling.name, true);
           handoffs.push({ targetWorkflow: sibling.name, stage: "INITIATED (CR pending)" });
         }
       }
@@ -558,9 +587,10 @@ async function autoAdvanceItem(
   startStage: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wfType: any,
-  workflowName: string
+  workflowName: string,
+  useFakeData = true
 ): Promise<string> {
-  await generateStageArtifact(itemId, workflowId, startStage, wfType, workflowName);
+  await generateStageArtifact(itemId, workflowId, startStage, wfType, workflowName, useFakeData);
 
   let currentStage = startStage;
   const stageMap = new Map(
@@ -586,12 +616,12 @@ async function autoAdvanceItem(
     if (visited.has(nextStageKey)) break;
     visited.add(nextStageKey);
 
-    await generateStageArtifact(itemId, workflowId, currentStage, wfType, workflowName);
+    await generateStageArtifact(itemId, workflowId, currentStage, wfType, workflowName, useFakeData);
     await query(
       `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
       [nextStageKey, itemId]
     );
-    await generateStageArtifact(itemId, workflowId, nextStageKey, wfType, workflowName);
+    await generateStageArtifact(itemId, workflowId, nextStageKey, wfType, workflowName, useFakeData);
     currentStage = nextStageKey;
   }
 
@@ -609,12 +639,76 @@ async function generateStageArtifact(
   workflowId: string,
   stage: string,
   wfType: any,
-  workflowName: string
+  workflowName: string,
+  useFakeData = true
 ) {
   if (!wfType) return;
 
+  // Fetch the idea text if we're generating a campaign spec (to incorporate it)
+  let ideaText = "";
+  if (stage === "CAMPAIGN_SPEC" || stage === "DRAFTING") {
+    const ideaArtifacts = await query<{ content: string }>(
+      `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'IDEA' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+      [itemId]
+    );
+    ideaText = ideaArtifacts[0]?.content || "No idea submitted";
+  }
+
+  // ── REAL LLM CALLS (when useFakeData is false) ──
+  console.log(`[generateStageArtifact] stage=${stage} useFakeData=${useFakeData} workflowName=${workflowName}`);
+  if (!useFakeData) {
+    if (stage === "CAMPAIGN_SPEC") {
+      const spec = await generateRealCampaignSpec(ideaText, workflowName);
+      if (spec) {
+        await insertArtifact(itemId, workflowId, stage, "Campaign Spec", spec);
+        return;
+      }
+    }
+    if (stage === "DRAFTING") {
+      // Get the campaign spec artifact
+      const specArtifacts = await query<{ content: string }>(
+        `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'CAMPAIGN_SPEC' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+        [itemId]
+      );
+      const campaignSpec = specArtifacts[0]?.content || ideaText;
+      try {
+        const draft = await generateRealArticleDraft(ideaText, campaignSpec, workflowName);
+        if (draft) {
+          await insertArtifact(itemId, workflowId, stage, "Article Draft", draft);
+          return;
+        }
+        // If null, write the error as the artifact so we can see it
+        await insertArtifact(itemId, workflowId, stage, "Article Draft", `# LLM RETURNED NULL (v2)\n\nideaText: ${ideaText.substring(0, 200)}\ncampaignSpec length: ${campaignSpec.length}\nANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}\n\nFalling through to fake data.`);
+        return;
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await insertArtifact(itemId, workflowId, stage, "Article Draft", `# LLM ERROR\n\n${errMsg}\n\nANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}\nideaText: ${ideaText.substring(0, 200)}`);
+        return;
+      }
+    }
+    if (stage === "DRAFT_PUBLISHED") {
+      // Publish existing article to strattegys.com as a draft — NO regeneration
+      try {
+        const result = await publishToStrattegys(itemId, workflowId, workflowName);
+        if (result) {
+          await insertArtifact(itemId, workflowId, stage, "Draft Published", result);
+          return;
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await insertArtifact(itemId, workflowId, stage, "Publish Error", `# PUBLISH FAILED\n\n${errMsg}`);
+        return;
+      }
+    }
+    // For other stages, fall through to fake data templates
+  }
+
   // Map of stage keys to artifact generators
   const ARTIFACT_MAP: Record<string, { name: string; content: string } | null> = {
+    CAMPAIGN_SPEC: {
+      name: "Campaign Spec",
+      content: `# Campaign Spec: ${workflowName}\n\n## Article Idea\n${ideaText}\n\n## Target Audience\n- *To be defined by Ghost*\n\n## Key Messages\n- *To be defined by Ghost*\n\n## Content Angle\n- *To be defined by Ghost*\n\n## SEO Keywords\n- *To be defined by Ghost*\n\n## Distribution Plan\n- Publish on strattegys.com\n- LinkedIn post by Marni\n- Outreach messaging by Tim\n\n---\n*Campaign spec template — Ghost will refine this based on your idea. Chat with Ghost to make changes before submitting.*`,
+    },
     DRAFTING: {
       name: "Article Draft",
       content: `# Article Draft: ${workflowName}\n\n## Introduction\nIn the rapidly evolving landscape of B2B marketing, influencer partnerships have emerged as a key differentiator for brands looking to build credibility and drive pipeline.\n\n## The Shift to B2B Influencer Strategy\nRecent data suggests that 78% of B2B buyers trust peer recommendations over traditional vendor content. This shift is fundamentally changing how companies approach their go-to-market strategies.\n\n## Case Studies\n\n### CloudScale (SaaS, Series C)\nBy partnering with 5 industry thought leaders, CloudScale saw a 3.2x increase in qualified demo requests over 6 months.\n\n### DataFlow Analytics\nTheir influencer content program generated 45% of all inbound pipeline in Q4 2025.\n\n### SecureNet\nThought leadership partnerships drove a 28% reduction in sales cycle length.\n\n## Building Your B2B Influencer Playbook\n1. Identify thought leaders your buyers already trust\n2. Co-create content that serves the audience first\n3. Measure beyond vanity metrics — track pipeline influence\n4. Build long-term relationships, not one-off campaigns\n\n## Conclusion\nThe companies winning in B2B marketing are those treating influencer partnerships as a strategic channel, not a tactical afterthought.\n\n---\n*Draft generated by Ghost — ready for human review*`,
@@ -797,4 +891,246 @@ function markdownToHtml(md: string): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+// ── Helper: insert artifact ──
+async function insertArtifact(
+  itemId: string,
+  workflowId: string,
+  stage: string,
+  name: string,
+  content: string
+) {
+  await query(
+    `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+    [itemId, workflowId, stage, name, "markdown", content]
+  );
+}
+
+// ── Real LLM: Campaign Spec from Idea ──
+async function generateRealCampaignSpec(ideaText: string, workflowName: string): Promise<string | null> {
+  if (!ANTHROPIC_KEY) {
+    console.error("[generateRealCampaignSpec] ANTHROPIC_API_KEY is not set");
+    return null;
+  }
+  try {
+    const client = new Anthropic({ apiKey: ANTHROPIC_KEY });
+
+    console.log(`[generateRealCampaignSpec] Generating spec for: "${workflowName}"`);
+
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4000,
+      system: `You are Ghost, a content strategist for Strattegys — a B2B growth strategy publication by Govind Davis.
+
+Your job is to take a raw article idea and expand it into a complete campaign specification document.
+
+Write the spec in Markdown. Include these sections:
+# Campaign Spec: [Title]
+
+## Article Idea
+(Restate the idea clearly)
+
+## Target Audience
+(Who is this for? Be specific — roles, company stages, pain points)
+
+## Key Messages & Angles
+(3-5 core arguments or insights the article will deliver)
+
+## Detailed Outline
+(Section-by-section with headers and 1-2 sentence descriptions of each section's content)
+
+## Tone & Voice
+(How should this sound? Reference Govind's style — direct, conversational, technical but accessible)
+
+## SEO Keywords
+(5-8 target keywords/phrases)
+
+## Estimated Word Count
+(Target length)
+
+## Distribution Notes
+(How this connects to LinkedIn posts, outreach, etc.)
+
+Be thorough and specific. This spec will guide the actual article writing.`,
+      messages: [{ role: "user", content: `Here's the article idea:\n\n${ideaText}\n\nCreate a complete campaign specification for this article.` }],
+    });
+
+    const text = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("");
+
+    console.log(`[generateRealCampaignSpec] Generated ${text.split(/\s+/).length} words`);
+    return text || null;
+  } catch (err) {
+    console.error("[generateRealCampaignSpec] Error:", err);
+    return null;
+  }
+}
+
+// ── Real LLM: Article Draft from Campaign Spec ──
+async function generateRealArticleDraft(ideaText: string, campaignSpec: string, workflowName: string): Promise<string | null> {
+  const key = ANTHROPIC_KEY;
+  console.log(`[generateRealArticleDraft-v2] ANTHROPIC_API_KEY present: ${!!key}`);
+  if (!key) {
+    console.error("[generateRealArticleDraft-v2] ANTHROPIC_API_KEY is not set");
+    return null;
+  }
+
+  try {
+    const client = new Anthropic({ apiKey: key });
+
+    console.log(`[generateRealArticleDraft-v2] Writing article for: "${workflowName}"`);
+
+    let text = "";
+    const stream = await client.messages.stream({
+      model: "claude-opus-4-20250514",
+      max_tokens: 12000,
+      system: `You are an expert long-form content writer for Strattegys, a B2B growth strategy publication by Govind Davis.
+
+Write in Govind's voice: direct, conversational, technically sharp but accessible. He uses punchy short sentences mixed with longer analytical ones. He's not afraid to have personality — references, humor, real talk.
+
+IMPORTANT: Start the article with a YAML frontmatter block containing metadata, then the full article body in Markdown.
+
+Format:
+---
+title: [Compelling article title]
+slug: [url-friendly-slug-from-title]
+excerpt: [1-2 sentence hook under 300 characters that makes people want to read]
+featuredImageDescription: [Detailed visual description for AI image generation — describe the scene, style, mood, colors. Think editorial illustration, not stock photo.]
+featuredImage:
+author: Govind Davis
+tags: [relevant tags as YAML list]
+---
+
+[Article body starts here with a strong opening paragraph — no heading, just jump right in]
+
+## [First Section Heading]
+...
+
+Use ## for main sections and ### for subsections. Lead with a strong hook. Back claims with data or examples. Make every section actionable. Target the word count in the spec.`,
+      messages: [
+        {
+          role: "user",
+          content: `Write the full article based on this campaign spec:\n\n${campaignSpec}\n\nOriginal idea: ${ideaText}\n\nWrite the complete article with YAML frontmatter (title, slug, excerpt, author, tags) followed by the article body in Markdown.`,
+        },
+      ],
+    });
+
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        text += event.delta.text;
+      }
+    }
+
+    const wordCount = text.split(/\s+/).length;
+    console.log(`[generateRealArticleDraft-v2] Generated ~${wordCount} words`);
+    return text || null;
+  } catch (err) {
+    const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error("[generateRealArticleDraft-v2] CAUGHT ERROR:", errMsg);
+    return `# LLM CALL FAILED\n\nError: ${errMsg}\n\nModel: claude-opus-4-20250514\nANTHROPIC_API_KEY configured: ${!!process.env.ANTHROPIC_API_KEY}`;
+  }
+}
+
+// ── Publish to strattegys.com ──
+async function publishToStrattegys(itemId: string, workflowId: string, workflowName: string): Promise<string | null> {
+  const SITE_API_URL = process.env.SITE_API_URL || "https://strattegys.com/api/articles";
+  const SITE_PUBLISH_SECRET = process.env.SITE_PUBLISH_SECRET || "strattegys-publish-2026";
+
+  // 1. Get the article draft
+  const draftRows = await query<{ content: string }>(
+    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'DRAFTING' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+    [itemId]
+  );
+  if (!draftRows[0]?.content) return "# ERROR\n\nNo article draft found.";
+  const rawContent = draftRows[0].content;
+
+  // 2. Parse YAML frontmatter if present
+  let title = workflowName;
+  let slug = "";
+  let excerpt = "";
+  let author = "Govind Davis";
+  let tags: string[] = ["AI", "Strategy"];
+  let featuredImage = "";
+  let articleContent = rawContent;
+
+  const fmMatch = rawContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (fmMatch) {
+    const fm = fmMatch[1];
+    articleContent = fmMatch[2].trim();
+
+    const getField = (key: string) => {
+      const m = fm.match(new RegExp(`^${key}:\\s*(.+)`, "m"));
+      return m ? m[1].trim() : "";
+    };
+
+    title = getField("title") || title;
+    slug = getField("slug");
+    excerpt = getField("excerpt");
+    author = getField("author") || author;
+    featuredImage = getField("featuredImage");
+
+    // Parse tags: [tag1, tag2] or - tag1
+    const tagsMatch = fm.match(/^tags:\s*\[([^\]]+)\]/m);
+    if (tagsMatch) {
+      tags = tagsMatch[1].split(",").map((t: string) => t.trim());
+    }
+  } else {
+    // No frontmatter — extract from content
+    const articleTitleMatch = rawContent.match(/^#\s+(.+)/m);
+    if (articleTitleMatch) title = articleTitleMatch[1].trim();
+
+    const paragraphs = rawContent.split(/\n\n+/).filter((p: string) => p.trim() && !p.startsWith("#") && !p.startsWith("!"));
+    excerpt = (paragraphs[0] || "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .slice(0, 300);
+  }
+
+  // Generate slug if not in frontmatter
+  if (!slug) {
+    slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80);
+  }
+
+  // Skip pending featured image placeholder
+  if (featuredImage.includes("pending")) featuredImage = "";
+
+  // 6. Publish to strattegys.com as draft
+  console.log(`[publishToStrattegys] Publishing "${title}" (slug: ${slug}) to ${SITE_API_URL}`);
+
+  const res = await fetch(SITE_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-publish-secret": SITE_PUBLISH_SECRET,
+    },
+    body: JSON.stringify({
+      command: "create",
+      title,
+      slug,
+      content: articleContent,
+      excerpt,
+      author,
+      tags,
+      ...(featuredImage ? { featureImage: featuredImage } : {}),
+    }),
+  });
+
+  const data = await res.json();
+  console.log(`[publishToStrattegys] Response:`, data);
+
+  if (data.ok || data.slug) {
+    const articleUrl = `https://strattegys.com/blog/${data.slug || slug}`;
+    return `# Draft Published to Strattegys\n\n**Title:** ${title}\n\n**URL:** [${articleUrl}](${articleUrl})\n\n**Slug:** ${data.slug || slug}\n\n**Excerpt:** ${excerpt}\n\n---\n\nReview the article on the site, then Submit to publish it live.`;
+  }
+
+  return `# PUBLISH FAILED\n\nAPI response: ${JSON.stringify(data)}`;
 }

@@ -806,6 +806,7 @@ function ChatPage() {
               </svg>
             </button>
           </div>
+          <span className="ml-auto text-sm font-mono text-[var(--text-tertiary)]" title="Build code">b25b</span>
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">

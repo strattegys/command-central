@@ -16,14 +16,23 @@ const AGENT_COLORS: Record<string, string> = {
 
 /** Human-readable action labels for each stage that requires human input */
 const STAGE_ACTION_LABELS: Record<string, string> = {
-  IDEA: "Review Content Brief",
+  IDEA: "Submit Your Idea",
+  CAMPAIGN_SPEC: "Review Campaign Spec",
   REVIEW: "Review Article Draft",
-  DRAFT_PUBLISHED: "Review Publication Details",
+  DRAFT_PUBLISHED: "Review on Site",
   QUALIFICATION: "Review Qualified Target",
   POST_DRAFTED: "Review LinkedIn Post",
   INITIATED: "Review Connection Request",
   MESSAGED: "Review Outreach Message",
 };
+
+/** Stages where the task is an input form (no artifact to view, just submit) */
+const INPUT_ONLY_STAGES = new Set(["IDEA"]);
+
+/** Stages where Reject doesn't make sense — user chats with agent to refine, then submits */
+const NO_REJECT_STAGES = new Set(["IDEA", "CAMPAIGN_SPEC", "REVIEW", "DRAFT_PUBLISHED"]);
+
+/** Notes are never used — all info lives in artifacts */
 
 interface HumanTask {
   itemId: string;
@@ -46,17 +55,18 @@ interface HumanTasksPanelProps {
   onSwitchToAgent?: (agentId: string) => void;
   /** Filter to only show tasks from packages at this stage. Default: no filter (all tasks). */
   packageStageFilter?: string;
+  /** When true, hides the panel header/tabs — used when embedded inline */
+  compact?: boolean;
 }
 
 const POLL_INTERVAL = 5000;
 
-export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }: HumanTasksPanelProps) {
+export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, compact }: HumanTasksPanelProps) {
   const [tasks, setTasks] = useState<HumanTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState<string | null>(null);
-  const [artifactView, setArtifactView] = useState<{ workflowItemId: string; focusStage?: string } | null>(null);
-  const [inputTask, setInputTask] = useState<string | null>(null);
-  const [inputNotes, setInputNotes] = useState("");
+  const [artifactView, setArtifactView] = useState<{ workflowItemId: string; focusStage?: string; workflowName?: string; agentId?: string; taskItemId?: string; taskStage?: string } | null>(null);
+  const [ideaInput, setIdeaInput] = useState("");
   const [tab, setTab] = useState<"now" | "later">("now");
   const mountedRef = useRef(true);
 
@@ -98,7 +108,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
   }, [fetchTasks]);
 
   const handleResolve = useCallback(
-    async (itemId: string, action: "approve" | "reject", notes?: string) => {
+    async (itemId: string, action: "approve" | "reject" | "input", notes?: string) => {
       setResolving(itemId);
       try {
         const res = await fetch("/api/crm/human-tasks/resolve", {
@@ -108,10 +118,27 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
         });
         const data = await res.json();
         if (data.ok) {
+          // Append logs to sessionStorage for the Logs panel
+          if (data.logs && data.logs.length > 0) {
+            try {
+              // Find the package ID for this task's workflow
+              const task = tasks.find(t => t.itemId === itemId);
+              if (task) {
+                // Try to find the packageId from the workflow
+                const wfRes = await fetch(`/api/crm/workflow-items?workflowItemId=${itemId}`);
+                const wfData = await wfRes.json();
+                const packageId = wfData.packageId;
+                if (packageId) {
+                  const key = `simLog-${packageId}`;
+                  const existing = JSON.parse(sessionStorage.getItem(key) || "[]");
+                  sessionStorage.setItem(key, JSON.stringify([...existing, ...data.logs]));
+                }
+              }
+            } catch { /* ignore log storage failures */ }
+          }
           // Remove the task from the list immediately
           setTasks((prev) => prev.filter((t) => t.itemId !== itemId));
-          setInputTask(null);
-          setInputNotes("");
+          setIdeaInput("");
           // Re-fetch to get accurate state
           setTimeout(fetchTasks, 500);
         }
@@ -146,8 +173,8 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Now / Later tabs */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2 shrink-0">
+      {/* Now / Later tabs — hidden in compact mode */}
+      {!compact && <div className="flex items-center gap-1 px-3 pt-3 pb-2 shrink-0">
         <button
           onClick={() => setTab("now")}
           className={`text-[11px] px-3 py-1 rounded-full font-semibold transition-colors ${
@@ -168,7 +195,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
         >
           Later{laterTasks.length > 0 ? ` (${laterTasks.length})` : ""}
         </button>
-      </div>
+      </div>}
 
       {visibleTasks.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
@@ -185,30 +212,23 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
                 key={task.itemId}
                 className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-amber-500/40 transition-colors"
               >
-                {/* Task title: Package — Action Label */}
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                    {task.packageName ? `${task.packageName} — ` : ""}{STAGE_ACTION_LABELS[task.stage] || task.stageLabel}
-                  </span>
-                  <span className="flex items-center gap-1 shrink-0">
-                    <img
-                      src={`/api/agent-avatar?id=${task.ownerAgent}`}
-                      alt={task.ownerAgent}
-                      className="w-4 h-4 rounded-full object-cover"
-                      style={{ border: `1.5px solid ${AGENT_COLORS[task.ownerAgent] || "#888"}` }}
-                    />
-                    <span className="text-[10px] text-[var(--text-tertiary)] capitalize">{task.ownerAgent}</span>
-                  </span>
-                  {task.dueDate && (
-                    <span className={`text-[9px] ml-auto shrink-0 ${
-                      new Date(task.dueDate) <= new Date() ? "text-amber-400" : "text-blue-400"
-                    }`}>
-                      {new Date(task.dueDate) <= new Date()
-                        ? "Due now"
-                        : `Due ${new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                      }
+                {/* Task header */}
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                      {task.packageName ? `${task.packageName} — ` : ""}{STAGE_ACTION_LABELS[task.stage] || task.stageLabel}
                     </span>
-                  )}
+                    <span className="flex items-center gap-1 shrink-0">
+                      <img
+                        src={`/api/agent-avatar?id=${task.ownerAgent}`}
+                        alt={task.ownerAgent}
+                        className="w-4 h-4 rounded-full object-cover"
+                        style={{ border: `1.5px solid ${AGENT_COLORS[task.ownerAgent] || "#888"}` }}
+                      />
+                      <span className="text-[10px] text-[var(--text-tertiary)] capitalize">{task.ownerAgent}</span>
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[var(--text-tertiary)] shrink-0 truncate max-w-[120px]">{task.workflowName}</span>
                 </div>
 
                 {/* Human action */}
@@ -231,13 +251,13 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
                   </span>
                 </div>
 
-                {/* Input area (shown when user clicks "Add Notes") */}
-                {inputTask === task.itemId && (
+                {/* Input area — only for IDEA stage */}
+                {INPUT_ONLY_STAGES.has(task.stage) && (
                   <div className="mb-3">
                     <textarea
-                      value={inputNotes}
-                      onChange={(e) => setInputNotes(e.target.value)}
-                      placeholder="Add notes, feedback, or a URL..."
+                      value={ideaInput}
+                      onChange={(e) => setIdeaInput(e.target.value)}
+                      placeholder="Describe your article idea — topic, angle, or rough concept..."
                       className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-2 text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-amber-500/50"
                       rows={3}
                     />
@@ -246,60 +266,41 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setArtifactView({ workflowItemId: task.itemId, focusStage: undefined })}
-                    className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
-                  >
-                    View Artifacts
-                  </button>
-
-                  {inputTask !== task.itemId ? (
+                  {/* View Artifacts — only for stages that have artifacts (not IDEA) */}
+                  {!INPUT_ONLY_STAGES.has(task.stage) && (
                     <button
-                      onClick={() => {
-                        setInputTask(task.itemId);
-                        setInputNotes("");
-                      }}
+                      onClick={() => setArtifactView({ workflowItemId: task.itemId, focusStage: undefined, workflowName: task.workflowName, agentId: task.ownerAgent, taskItemId: task.itemId, taskStage: task.stage })}
                       className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
                     >
-                      Add Notes
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setInputTask(null)}
-                      className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-                    >
-                      Cancel
+                      View Artifacts
                     </button>
                   )}
 
                   <div className="flex items-center gap-1.5 ml-auto">
+                    {/* Reject — only for stages where it makes sense */}
+                    {!NO_REJECT_STAGES.has(task.stage) && (
+                      <button
+                        onClick={() => handleResolve(task.itemId, "reject")}
+                        disabled={resolving === task.itemId}
+                        className="text-[10px] px-3 py-1 rounded bg-red-900/30 border border-red-800/50 text-red-400 hover:bg-red-900/50 transition-colors disabled:opacity-50 font-semibold"
+                      >
+                        Reject
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleResolve(task.itemId, "reject", inputTask === task.itemId ? inputNotes : undefined)}
-                      disabled={resolving === task.itemId}
-                      className="text-[10px] px-3 py-1 rounded bg-red-900/30 border border-red-800/50 text-red-400 hover:bg-red-900/50 transition-colors disabled:opacity-50 font-semibold"
-                    >
-                      Reject
-                    </button>
-                    <button
-                      onClick={() => handleResolve(task.itemId, "approve", inputTask === task.itemId ? inputNotes : undefined)}
-                      disabled={resolving === task.itemId}
+                      onClick={() => handleResolve(
+                        task.itemId,
+                        INPUT_ONLY_STAGES.has(task.stage) ? "input" : "approve",
+                        INPUT_ONLY_STAGES.has(task.stage) ? ideaInput : undefined
+                      )}
+                      disabled={resolving === task.itemId || (INPUT_ONLY_STAGES.has(task.stage) && (!ideaInput || !ideaInput.trim()))}
                       className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors disabled:opacity-50 font-semibold"
                     >
-                      Approve
+                      Submit
                     </button>
                   </div>
                 </div>
 
-                {/* Workflow context + chat link */}
-                <div className="flex items-center gap-2 mt-2 text-[10px] text-[var(--text-tertiary)]">
-                  <span className="truncate">{task.workflowName}</span>
-                  <button
-                    onClick={() => onSwitchToAgent?.(task.ownerAgent)}
-                    className="ml-auto shrink-0 text-[var(--accent-green)] hover:underline"
-                  >
-                    Open chat with {task.ownerAgent}
-                  </button>
-                </div>
               </div>
             ))}
       </div>
@@ -310,6 +311,16 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter }:
         <ArtifactViewer
           workflowItemId={artifactView.workflowItemId}
           focusStage={artifactView.focusStage}
+          title={artifactView.workflowName}
+          agentId={artifactView.agentId}
+          onSubmitTask={artifactView.taskItemId ? async () => {
+            await fetch("/api/crm/human-tasks/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ itemId: artifactView.taskItemId, action: "approve" }),
+            });
+            fetchTasks();
+          } : undefined}
           onClose={() => setArtifactView(null)}
         />,
         document.body

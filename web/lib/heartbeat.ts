@@ -627,6 +627,9 @@ async function runSuziDbHeartbeat(): Promise<void> {
     if (suziConfig.provider === "anthropic") {
       const { autonomousChatAnthropic } = await import("./anthropic-chat");
       await autonomousChatAnthropic("suzi", prompt);
+    } else if (suziConfig.provider === "groq") {
+      const { autonomousChatGroq } = await import("./groq-chat");
+      await autonomousChatGroq("suzi", prompt);
     } else {
       await autonomousChat("suzi", prompt);
     }

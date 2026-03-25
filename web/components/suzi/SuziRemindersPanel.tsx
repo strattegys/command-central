@@ -70,9 +70,9 @@ export default function SuziRemindersPanel({
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_panel_subtab");
-      if (saved === "punchlist" || saved === "notes") return saved as SubTab;
+      if (saved === "reminders" || saved === "notes") return saved as SubTab;
     }
-    return "reminders";
+    return "punchlist";
   });
 
   useEffect(() => {
@@ -203,7 +203,7 @@ export default function SuziRemindersPanel({
   // Helper to render the 3-tab header
   const renderSubTabHeader = () => (
     <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-      {(["reminders", "punchlist", "notes"] as SubTab[]).map((tab, i) => {
+      {(["punchlist", "reminders", "notes"] as SubTab[]).map((tab, i) => {
         const label = tab === "punchlist" ? "Punch List" : tab === "notes" ? "Notes" : "Reminders";
         const isActive = subTab === tab;
         return (

@@ -1,10 +1,15 @@
 import type { ToolModule } from "./types";
-import { writeFile, readFile, mkdir } from "fs/promises";
-import path from "path";
 
-const CONTENT_PATH = process.env.SITE_CONTENT_PATH || "/root/apps/site/content/articles";
-const REVALIDATE_URL = process.env.SITE_REVALIDATE_URL || "http://127.0.0.1:3002/api/revalidate";
-const REVALIDATE_SECRET = process.env.SITE_REVALIDATE_SECRET || "";
+/**
+ * Publish Article tool — manages articles on strattegys.com via remote API.
+ *
+ * The site runs on a separate server. All operations go through
+ * the site's /api/articles endpoint authenticated by PUBLISH_SECRET.
+ */
+
+const SITE_API_URL =
+  process.env.SITE_API_URL || "https://strattegys.com/api/articles";
+const PUBLISH_SECRET = process.env.SITE_PUBLISH_SECRET || "";
 
 function slugify(text: string): string {
   return text
@@ -13,16 +18,27 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, "");
 }
 
-async function revalidate(slug?: string) {
-  try {
-    await fetch(REVALIDATE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, secret: REVALIDATE_SECRET }),
-    });
-  } catch {
-    // Non-fatal — site will catch up on next ISR cycle
+async function siteApi(
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const res = await fetch(SITE_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-publish-secret": PUBLISH_SECRET,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json()) as Record<string, unknown>;
+
+  if (!res.ok) {
+    throw new Error(
+      (data.error as string) || `Site API returned ${res.status}`
+    );
   }
+
+  return data;
 }
 
 const tool: ToolModule = {
@@ -31,7 +47,7 @@ const tool: ToolModule = {
     displayName: "Article Publisher",
     category: "internal",
     description:
-      "Publishes articles to strattegys.com. Creates MDX content files and database records. " +
+      "Publishes articles to strattegys.com via remote API. Creates MDX content files and database records. " +
       "Supports draft → publish workflow.",
     operations: ["create", "publish", "update", "unpublish", "list"],
     requiresApproval: true,
@@ -54,7 +70,10 @@ const tool: ToolModule = {
           type: "string",
           description: "Command: create, publish, update, unpublish, list",
         },
-        arg1: { type: "string", description: "First arg (see command descriptions)" },
+        arg1: {
+          type: "string",
+          description: "First arg (see command descriptions)",
+        },
         arg2: { type: "string", description: "Second arg" },
         arg3: { type: "string", description: "Third arg" },
         arg4: { type: "string", description: "Fourth arg" },
@@ -70,141 +89,98 @@ const tool: ToolModule = {
   },
 
   async execute(args) {
-    const { query: dbQuery } = await import("../db");
     const cmd = args.command;
 
-    // ─── create ───────────────────────────────────────────────────
-    if (cmd === "create") {
-      const title = args.arg1;
-      if (!title) return "Error: arg1 (title) is required";
-
-      const slug = args.arg2 || slugify(title);
-      const content = args.arg3 || "";
-      const excerpt = args.arg4 || null;
-      const author = args.arg5 || null;
-      const tags = args.arg6 ? args.arg6.split(",").map((t: string) => t.trim()) : [];
-      const featureImage = args.arg7 || null;
-      const seoTitle = args.arg8 || null;
-      const seoDescription = args.arg9 || null;
-      const contentItemId = args.arg10 || null;
-
-      // Write MDX file
-      await mkdir(CONTENT_PATH, { recursive: true });
-      const filePath = path.join(CONTENT_PATH, `${slug}.mdx`);
-      await writeFile(filePath, content, "utf-8");
-
-      // Insert DB record
-      await dbQuery(
-        `INSERT INTO "_article" ("slug", "title", "excerpt", "author", "tags", "featureImage", "seoTitle", "seoDescription", "contentItemId", "status")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')`,
-        [slug, title, excerpt, author, tags, featureImage, seoTitle, seoDescription, contentItemId]
-      );
-
-      return `Created draft article "${title}" (slug: ${slug}). MDX file written to ${filePath}. Use publish command to make it live.`;
+    if (!PUBLISH_SECRET) {
+      return "Error: SITE_PUBLISH_SECRET not configured — cannot reach strattegys.com";
     }
 
-    // ─── publish ──────────────────────────────────────────────────
-    if (cmd === "publish") {
-      const slug = args.arg1;
-      if (!slug) return "Error: arg1 (slug) is required";
+    try {
+      // ─── create ───────────────────────────────────────────────────
+      if (cmd === "create") {
+        const title = args.arg1;
+        if (!title) return "Error: arg1 (title) is required";
 
-      const rows = await dbQuery(
-        `UPDATE "_article" SET "status" = 'published', "publishedAt" = NOW(), "updatedAt" = NOW()
-         WHERE "slug" = $1 AND "deletedAt" IS NULL
-         RETURNING "title"`,
-        [slug]
-      );
-      if (rows.length === 0) return `Error: article with slug "${slug}" not found`;
+        const slug = args.arg2 || slugify(title);
+        const result = await siteApi({
+          command: "create",
+          title,
+          slug,
+          content: args.arg3 || "",
+          excerpt: args.arg4 || null,
+          author: args.arg5 || null,
+          tags: args.arg6 || "",
+          featureImage: args.arg7 || null,
+          seoTitle: args.arg8 || null,
+          seoDescription: args.arg9 || null,
+          contentItemId: args.arg10 || null,
+        });
 
-      await revalidate(slug);
-      return `Published "${(rows[0] as { title: string }).title}" — now live at /blog/${slug}`;
-    }
-
-    // ─── update ───────────────────────────────────────────────────
-    if (cmd === "update") {
-      const slug = args.arg1;
-      const field = args.arg2;
-      const value = args.arg3;
-      if (!slug) return "Error: arg1 (slug) is required";
-      if (!field) return "Error: arg2 (field) is required";
-
-      if (field === "content") {
-        // Update MDX file
-        const filePath = path.join(CONTENT_PATH, `${slug}.mdx`);
-        await writeFile(filePath, value || "", "utf-8");
-        await dbQuery(
-          `UPDATE "_article" SET "updatedAt" = NOW() WHERE "slug" = $1 AND "deletedAt" IS NULL`,
-          [slug]
-        );
-        await revalidate(slug);
-        return `Updated content for "${slug}"`;
+        return `Created draft article "${title}" (slug: ${result.slug}). Use publish command to make it live on strattegys.com.`;
       }
 
-      const allowedFields = ["title", "subtitle", "excerpt", "featured", "spotlight", "tags", "featureImage", "seoTitle", "seoDescription", "author", "sortOrder"];
-      if (!allowedFields.includes(field)) return `Error: field "${field}" is not updatable. Allowed: ${allowedFields.join(", ")}`;
+      // ─── publish ──────────────────────────────────────────────────
+      if (cmd === "publish") {
+        const slug = args.arg1;
+        if (!slug) return "Error: arg1 (slug) is required";
 
-      let sqlValue: unknown = value;
-      if (field === "featured" || field === "spotlight") {
-        sqlValue = value === "true";
-      } else if (field === "tags") {
-        sqlValue = value ? value.split(",").map((t: string) => t.trim()) : [];
-      } else if (field === "sortOrder") {
-        sqlValue = parseInt(value || "0");
+        const result = await siteApi({ command: "publish", slug });
+        return `Published "${result.title}" — now live at strattegys.com/blog/${slug}`;
       }
 
-      await dbQuery(
-        `UPDATE "_article" SET "${field}" = $1, "updatedAt" = NOW() WHERE "slug" = $2 AND "deletedAt" IS NULL`,
-        [sqlValue, slug]
-      );
-      await revalidate(slug);
-      return `Updated ${field} for "${slug}"`;
-    }
+      // ─── update ───────────────────────────────────────────────────
+      if (cmd === "update") {
+        const slug = args.arg1;
+        const field = args.arg2;
+        const value = args.arg3;
+        if (!slug) return "Error: arg1 (slug) is required";
+        if (!field) return "Error: arg2 (field) is required";
 
-    // ─── unpublish ────────────────────────────────────────────────
-    if (cmd === "unpublish") {
-      const slug = args.arg1;
-      if (!slug) return "Error: arg1 (slug) is required";
-
-      const rows = await dbQuery(
-        `UPDATE "_article" SET "status" = 'draft', "updatedAt" = NOW()
-         WHERE "slug" = $1 AND "deletedAt" IS NULL
-         RETURNING "title"`,
-        [slug]
-      );
-      if (rows.length === 0) return `Error: article with slug "${slug}" not found`;
-
-      await revalidate(slug);
-      return `Unpublished "${(rows[0] as { title: string }).title}" — reverted to draft`;
-    }
-
-    // ─── list ─────────────────────────────────────────────────────
-    if (cmd === "list") {
-      const statusFilter = args.arg1;
-      let sql = `SELECT "slug", "title", "status", "publishedAt", "featured", "spotlight" FROM "_article" WHERE "deletedAt" IS NULL`;
-      const params: unknown[] = [];
-
-      if (statusFilter && ["draft", "published", "archived"].includes(statusFilter)) {
-        sql += ` AND "status" = $1`;
-        params.push(statusFilter);
+        await siteApi({ command: "update", slug, field, value });
+        return `Updated ${field} for "${slug}"`;
       }
 
-      sql += ` ORDER BY "updatedAt" DESC LIMIT 50`;
-      const rows = await dbQuery(sql, params);
+      // ─── unpublish ────────────────────────────────────────────────
+      if (cmd === "unpublish") {
+        const slug = args.arg1;
+        if (!slug) return "Error: arg1 (slug) is required";
 
-      if (rows.length === 0) return statusFilter ? `No ${statusFilter} articles found.` : "No articles found.";
+        const result = await siteApi({ command: "unpublish", slug });
+        return `Unpublished "${result.title}" — reverted to draft`;
+      }
 
-      return rows
-        .map((r: Record<string, unknown>) => {
-          const flags = [];
-          if (r.spotlight) flags.push("SPOTLIGHT");
-          if (r.featured) flags.push("FEATURED");
-          const flagStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
-          return `• ${r.title} (${r.slug}) — ${r.status}${flagStr}`;
-        })
-        .join("\n");
+      // ─── list ─────────────────────────────────────────────────────
+      if (cmd === "list") {
+        const result = await siteApi({
+          command: "list",
+          status: args.arg1 || undefined,
+        });
+
+        const articles = result.articles as Record<string, unknown>[];
+        if (!articles || articles.length === 0) {
+          return args.arg1
+            ? `No ${args.arg1} articles found.`
+            : "No articles found.";
+        }
+
+        return articles
+          .map((r) => {
+            const flags = [];
+            if (r.spotlight) flags.push("SPOTLIGHT");
+            if (r.featured) flags.push("FEATURED");
+            const flagStr =
+              flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+            return `• ${r.title} (${r.slug}) — ${r.status}${flagStr}`;
+          })
+          .join("\n");
+      }
+
+      return `Unknown command: ${cmd}. Use: create, publish, update, unpublish, list`;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[publish_article] ${cmd} error:`, msg);
+      return `Error: ${msg}`;
     }
-
-    return `Unknown command: ${cmd}. Use: create, publish, update, unpublish, list`;
   },
 };
 

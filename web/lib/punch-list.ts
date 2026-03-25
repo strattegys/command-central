@@ -67,7 +67,7 @@ export async function listPunchListItems(
        ) as notes
      FROM "_punch_list" p
      WHERE ${where}
-     ORDER BY CASE WHEN p.status = 'open' THEN 0 ELSE 1 END, p.rank ASC, p."createdAt" ASC
+     ORDER BY CASE WHEN p.status = 'open' THEN 0 ELSE 1 END, p.rank ASC, COALESCE(p."sortOrder", 0) ASC, p."createdAt" ASC
      LIMIT 200`,
     params
   );
@@ -89,7 +89,7 @@ export async function addPunchListItem(
 
 export async function updatePunchListItem(
   id: string,
-  data: Partial<{ title: string; description: string; rank: number; status: string; category: string }>
+  data: Partial<{ title: string; description: string; rank: number; status: string; category: string; sortOrder: number }>
 ): Promise<void> {
   const sets: string[] = [`"updatedAt" = NOW()`];
   const params: unknown[] = [];
@@ -115,12 +115,28 @@ export async function updatePunchListItem(
     sets.push(`category = $${idx++}`);
     params.push(data.category);
   }
+  if (data.sortOrder !== undefined) {
+    sets.push(`"sortOrder" = $${idx++}`);
+    params.push(data.sortOrder);
+  }
 
   params.push(id);
   await query(
     `UPDATE "_punch_list" SET ${sets.join(", ")} WHERE id = $${idx} AND "deletedAt" IS NULL`,
     params
   );
+}
+
+/** Bulk reorder items within a rank column */
+export async function reorderPunchListItems(
+  updates: { id: string; rank: number; sortOrder: number }[]
+): Promise<void> {
+  for (const u of updates) {
+    await query(
+      `UPDATE "_punch_list" SET rank = $1, "sortOrder" = $2, "updatedAt" = NOW() WHERE id = $3 AND "deletedAt" IS NULL`,
+      [u.rank, u.sortOrder, u.id]
+    );
+  }
 }
 
 export async function archivePunchListItem(id: string): Promise<void> {

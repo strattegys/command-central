@@ -27,11 +27,9 @@ const RANK_COLORS: Record<number, string> = {
   1: "#EF4444",
   2: "#F97316",
   3: "#F59E0B",
-  4: "#EAB308",
-  5: "#84CC16",
-  6: "#22C55E",
-  7: "#6366F1",
-  8: "#9CA3AF",
+  4: "#84CC16",
+  5: "#6366F1",
+  6: "#9CA3AF",
 };
 
 interface PunchListCardProps {
@@ -49,100 +47,80 @@ export default function PunchListCard({
 
   return (
     <div
-      className={`rounded-lg border p-3 transition-colors ${
+      className={`rounded border px-2.5 py-2 transition-colors ${
         isDone
           ? "border-[var(--border-color)] bg-[var(--bg-primary)] opacity-50"
-          : "border-[var(--border-color)] bg-[var(--bg-secondary)]"
+          : "border-[var(--border-color)] bg-[var(--bg-primary)]"
       }`}
     >
-      <div className="flex items-start gap-3">
-        {/* Item number */}
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-          style={{ background: `${rankColor}22`, color: rankColor }}
-        >
-          <span className="text-[10px] font-bold">{item.itemNumber}</span>
+      {/* Item number */}
+      <span
+        className="text-[11px] font-bold mb-1 inline-block"
+        style={{ color: rankColor }}
+      >
+        {item.itemNumber}
+      </span>
+
+      {/* Title */}
+      <p
+        className={`text-[11px] font-medium text-[var(--text-primary)] leading-tight ${
+          isDone ? "line-through" : ""
+        }`}
+      >
+        {item.title}
+      </p>
+
+      {/* Description */}
+      {item.description && (
+        <p className="text-[10px] text-[var(--text-secondary)] mt-0.5 line-clamp-2 leading-tight">
+          {item.description}
+        </p>
+      )}
+
+      {/* Latest note preview */}
+      {latestNote && !expanded && (
+        <div className="mt-2 mb-1 pl-1.5 border-l-2 border-[var(--border-color)]">
+          <p className="text-[10px] text-[var(--text-secondary)] line-clamp-1 italic py-0.5">
+            {latestNote.content}
+          </p>
         </div>
+      )}
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {/* Title */}
-          <span
-            className={`text-xs font-semibold text-[var(--text-primary)] ${
-              isDone ? "line-through" : ""
-            }`}
-          >
-            {item.title}
-          </span>
-
-          {/* Description */}
-          {item.description && (
-            <p className="text-[11px] text-[var(--text-secondary)] mt-0.5 line-clamp-2">
-              {item.description}
-            </p>
-          )}
-
-          {/* Latest note preview */}
-          {latestNote && !expanded && (
-            <div className="mt-1.5 pl-2 border-l-2 border-[var(--border-color)]">
-              <p className="text-[11px] text-[var(--text-secondary)] line-clamp-1 italic">
-                {latestNote.content}
+      {/* Expanded notes */}
+      {expanded && noteCount > 0 && (
+        <div className="mt-2 mb-1 space-y-2">
+          {item.notes.map((note) => (
+            <div key={note.id} className="pl-1.5 border-l-2 border-[var(--border-color)]">
+              <p className="text-[10px] text-[var(--text-secondary)] italic py-0.5">
+                {note.content}
               </p>
-            </div>
-          )}
-
-          {/* Expanded notes */}
-          {expanded && noteCount > 0 && (
-            <div className="mt-1.5 space-y-1.5">
-              {item.notes.map((note) => (
-                <div key={note.id} className="pl-2 border-l-2 border-[var(--border-color)]">
-                  <p className="text-[11px] text-[var(--text-secondary)] italic">
-                    {note.content}
-                  </p>
-                  <span className="text-[9px] text-[var(--text-tertiary)]">
-                    {new Date(note.createdAt).toLocaleDateString("en-US", {
-                      timeZone: "America/Los_Angeles",
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Meta row: rank badge, category, date, expand toggle */}
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span
-              className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
-              style={{ background: `${rankColor}22`, color: rankColor }}
-            >
-              R{item.rank}
-            </span>
-            {item.category && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-color)]">
-                {item.category}
+              <span className="text-[8px] text-[var(--text-tertiary)]">
+                {new Date(note.createdAt).toLocaleDateString("en-US", {
+                  timeZone: "America/Los_Angeles",
+                  month: "short",
+                  day: "numeric",
+                })}
               </span>
-            )}
-            <span className="text-[9px] text-[var(--text-tertiary)]">
-              {new Date(item.createdAt).toLocaleDateString("en-US", {
-                timeZone: "America/Los_Angeles",
-                month: "short",
-                day: "numeric",
-              })}
-            </span>
-            {noteCount > 0 && (
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="text-[9px] text-[var(--accent-green)] hover:underline cursor-pointer ml-auto"
-              >
-                {expanded ? "collapse" : `${noteCount} note${noteCount > 1 ? "s" : ""}`}
-              </button>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
+      )}
+
+      {/* Meta row */}
+      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        {item.category && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--bg-secondary)] text-[var(--text-tertiary)] border border-[var(--border-color)]">
+            {item.category}
+          </span>
+        )}
+        {noteCount > 0 && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[8px] text-[var(--accent-green)] hover:underline cursor-pointer ml-auto"
+          >
+            {expanded ? "hide" : `${noteCount}`}
+          </button>
+        )}
       </div>
     </div>
   );

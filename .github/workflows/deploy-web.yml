@@ -5,6 +5,9 @@ on:
     branches: [master]
     paths:
       - 'web/**'
+      - 'agents/**'
+      - 'Caddyfile'
+      - 'docker-compose.yml'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -39,42 +42,41 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Build and deploy on server
+      - name: Build and deploy with Docker Compose
         run: |
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
           set -e
           cd /opt/agent-tim
 
           # Pull latest code
+          echo "Pulling latest code..."
           git fetch origin master
           git reset --hard origin/master
-          cd web
 
-          # Install dependencies
-          npm ci
+          # Build and restart containers
+          echo "Building Docker images..."
+          docker compose build --no-cache web
 
-          # Build standalone output
-          npm run build
+          echo "Starting containers..."
+          docker compose up -d
 
-          # Copy static assets into standalone (required by Next.js standalone mode)
-          cp -r public .next/standalone/public
-          cp -r .next/static .next/standalone/.next/static
-          cp .env.local .next/standalone/.env.local 2>/dev/null || true
-
-          # Restart
-          pm2 restart command-central --update-env || pm2 start ecosystem.config.js
-          pm2 save
+          echo "Waiting for server to start..."
+          sleep 8
           EOF
 
       - name: Health check
         run: |
-          sleep 5
-          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "curl -sf http://localhost:3001 > /dev/null" || {
-            echo "Health check failed!"
-            ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 30 --nostream"
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
+          if curl -sf http://localhost:3001 > /dev/null 2>&1; then
+            echo "✓ Health check passed — Command Central is running."
+          else
+            echo "✗ Health check FAILED"
+            echo ""
+            echo "Container logs:"
+            docker compose -f /opt/agent-tim/docker-compose.yml logs --tail=30 web
             exit 1
-          }
-          echo "Health check passed - Command Central is running."
+          fi
+          EOF
 
       - name: Cleanup
         if: always()

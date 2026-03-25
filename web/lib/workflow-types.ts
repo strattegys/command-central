@@ -212,7 +212,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     label: "Content Pipeline",
     itemType: "content",
     description:
-      "Manage content from ideation through drafting, review, and publication",
+      "Manage content from ideation through campaign spec, drafting, review, and publication on strattegys.com",
     defaultBoard: {
       stages: [
         {
@@ -220,65 +220,75 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           label: "Idea",
           color: "#6b8a9e",
           instructions:
-            "Content idea generated based on the campaign spec. Ghost researches the topic, " +
-            "identifies the target audience angle, and creates a content brief with: " +
-            "working title, key points to cover, target keywords, estimated word count, " +
-            "and how it connects to the campaign's messaging.",
+            "Human pastes a short idea summary. This is the seed — just a topic, angle, or rough concept. " +
+            "No research or spec work needed at this stage.",
           requiresHuman: true,
           humanAction:
-            "Review Ghost's content brief and approve the topic. Provide any additional " +
-            "direction, specific angles, or data points to include. Reject if the topic " +
-            "doesn't align with campaign goals.",
+            "Paste a short article idea — a topic, angle, or rough concept. " +
+            "Ghost will expand it into a full campaign spec in the next stage.",
+        },
+        {
+          key: "CAMPAIGN_SPEC",
+          label: "Campaign Spec",
+          color: "#9B59B6",
+          instructions:
+            "Ghost takes the approved idea and builds a full campaign spec: target audience, " +
+            "key angles and arguments, detailed outline with section headers, tone and voice guidelines, " +
+            "target SEO keywords, estimated word count, and how the article connects to business goals. " +
+            "Submit the spec for human review before proceeding to drafting.",
+          requiresHuman: true,
+          humanAction:
+            "Review Ghost's campaign spec. Check the outline, audience targeting, and angles. " +
+            "Approve to proceed to drafting, or send back with feedback and adjustments.",
         },
         {
           key: "DRAFTING",
           label: "Drafting",
           color: "#2563EB",
           instructions:
-            "Ghost writes the full draft following the approved brief and campaign spec. " +
-            "Match the tone guidelines from the campaign spec. Include relevant data, " +
-            "quotes, and actionable insights. Optimize for SEO with target keywords. " +
-            "Tag sections that might need human expertise or fact-checking.",
+            "Ghost uses web_search to gather supporting research, then calls article_builder with the " +
+            "campaign spec details (topic, research notes, brief, audience, tone, keywords, word count) " +
+            "to generate a full MDX article via Claude Opus. Ghost then creates the draft on strattegys.com " +
+            "using publish_article create with the generated content and metadata. " +
+            "Move to Review when the draft is live on the site.",
         },
         {
           key: "REVIEW",
           label: "Review",
           color: "#D85A30",
           instructions:
-            "Draft complete. Ready for human review.",
+            "Draft article created on strattegys.com. Ready for human review.",
           requiresHuman: true,
           humanAction:
-            "Review the draft for accuracy, tone, and campaign alignment. " +
-            "Edit or provide feedback. Approve to move to publishing, " +
-            "or send back to Drafting with revision notes.",
+            "Visit strattegys.com/blog/[slug] to review the draft. Check accuracy, tone, and quality. " +
+            "Approve to move to Draft Published.",
         },
         {
           key: "DRAFT_PUBLISHED",
           label: "Draft Published",
           color: "#D4A017",
           instructions:
-            "Ghost has automatically published the approved draft to Beehiiv as a draft post. " +
-            "The Beehiiv link and summary are available as an artifact. " +
-            "Human reviews the draft on Beehiiv, makes any final edits, then approves here to move to Published.",
+            "The draft is posted to strattegys.com. Human reviews it on the live site before final publish.",
           requiresHuman: true,
           humanAction:
-            "Click the Beehiiv link to review the draft on the platform. Make any final edits directly in Beehiiv. " +
-            "When you're happy with it, approve here to mark as Published and trigger downstream workflows.",
+            "Review the article on strattegys.com. Confirm it looks good on the live site. " +
+            "Submit to publish it live.",
         },
         {
           key: "PUBLISHED",
           label: "Published",
           color: "#1D9E75",
           instructions:
-            "Article is live. Publication URL and summary are recorded. This is the final stage — " +
-            "items remain here permanently as the completed output of the content pipeline. " +
+            "Ghost calls publish_article publish to set the article live on strattegys.com. " +
+            "This is the final stage — items remain here as the completed output of the content pipeline. " +
             "Downstream workflows (Content Distribution, Target Research) are now unblocked.",
         },
       ],
       transitions: {
-        IDEA: ["DRAFTING"],
+        IDEA: ["CAMPAIGN_SPEC"],
+        CAMPAIGN_SPEC: ["DRAFTING"],
         DRAFTING: ["REVIEW"],
-        REVIEW: ["DRAFT_PUBLISHED", "DRAFTING"],
+        REVIEW: ["DRAFT_PUBLISHED"],
         DRAFT_PUBLISHED: ["PUBLISHED"],
         PUBLISHED: [],
       },

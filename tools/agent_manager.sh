@@ -26,7 +26,6 @@ get_agent_dir() {
     tim)     echo "/root/.nanobot" ;;
     scout)   echo "/root/.scoutbot" ;;
     suzi)    echo "/root/.suzibot" ;;
-    rainbow) echo "/root/.avabot" ;;
     friday)  echo "/root/.fridaybot" ;;
     *)       echo "/root/.${agent_id}bot" ;;
   esac
@@ -37,13 +36,12 @@ get_service_name() {
   case "$agent_id" in
     tim)     echo "nanobot" ;;
     suzi)    echo "suzibot" ;;
-    rainbow) echo "avabot" ;;
     *)       echo "" ;;  # No standalone service — runs through Slack gateway
   esac
 }
 
 # Known agent IDs
-KNOWN_AGENTS="tim scout suzi rainbow friday"
+KNOWN_AGENTS="tim scout suzi friday ghost marni penny king"
 
 # Safe write helper using Python for proper escaping
 safe_write_file() {

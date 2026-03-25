@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { chatStream } from "@/lib/gemini";
 import { chatStreamAnthropic } from "@/lib/anthropic-chat";
+import { chatStreamGroq } from "@/lib/groq-chat";
 import { getAgentConfig } from "@/lib/agent-config";
 
 export async function POST(request: NextRequest) {
@@ -16,7 +17,10 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getAgentConfig(agentId);
-    const chatFn = config.provider === "anthropic" ? chatStreamAnthropic : chatStream;
+    const chatFn =
+      config.provider === "anthropic" ? chatStreamAnthropic :
+      config.provider === "groq" ? chatStreamGroq :
+      chatStream;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

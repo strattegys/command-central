@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     const color = spec.color || "#555";
     const initial = spec.name?.[0] || safeId[0]?.toUpperCase() || "?";
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-      <circle cx="64" cy="64" r="64" fill="${color}"/>
+      <rect width="128" height="128" rx="64" ry="64" fill="${color}"/>
       <text x="64" y="64" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="56" font-weight="600" fill="white">${initial}</text>
     </svg>`;
     return new NextResponse(svg, {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
+import { createTask } from "@/lib/tasks";
 
 /**
  * POST /api/crm/packages/activate
@@ -21,7 +22,7 @@ import { PACKAGE_TEMPLATES } from "@/lib/package-types";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { packageId, targetStage = "ACTIVE" } = await req.json();
+    const { packageId, targetStage = "ACTIVE", skipTasks = false, useFakeData = true } = await req.json();
     if (!packageId) {
       return NextResponse.json({ error: "packageId is required" }, { status: 400 });
     }
@@ -44,6 +45,20 @@ export async function POST(req: NextRequest) {
 
     const pkg = pkgRows[0];
 
+    // skipTasks: just move stage, don't create workflows/tasks
+    if (skipTasks) {
+      await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
+      return NextResponse.json({ ok: true, packageId, workflows: [] });
+    }
+
+    // Always store useFakeData flag on the package so resolve handler can read it
+    const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
+    spec.useFakeData = useFakeData;
+    await query(
+      `UPDATE "_package" SET spec = $1, "updatedAt" = NOW() WHERE id = $2`,
+      [JSON.stringify(spec), packageId]
+    );
+
     // If workflows already exist (re-activation from PENDING_APPROVAL → ACTIVE), just update stage
     const existingWfs = await query<{ id: string; name: string; ownerAgent: string }>(
       `SELECT id, name, "ownerAgent" FROM "_workflow" WHERE "packageId" = $1 AND "deletedAt" IS NULL`,
@@ -58,8 +73,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Use template deliverables as the authoritative source (order, pacing, blockedBy all reference template positions)
-    const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
+    // Use template deliverables as the authoritative source
     const template = PACKAGE_TEMPLATES[spec?.templateId || pkg.templateId || ""] || Object.values(PACKAGE_TEMPLATES)[0];
     const deliverables = template?.deliverables || spec?.deliverables || [];
 
@@ -132,21 +146,8 @@ export async function POST(req: NextRequest) {
         );
         const itemId = (wiRows[0] as Record<string, unknown>).id as string;
 
-        // Create initial artifact if the first stage produces one
-        if (firstStage.key === "IDEA") {
-          await query(
-            `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
-            [
-              itemId,
-              workflowId,
-              firstStage.key,
-              "Content Brief",
-              "markdown",
-              `# Content Brief: ${deliverable.label}\n\n## Working Title\n"${pkg.name} — ${deliverable.label}"\n\n## Key Points to Cover\n- [Ghost will research and fill this based on the campaign spec]\n- Target audience analysis\n- Competitive angle\n- Key data points and statistics\n\n## Target Keywords\n- [To be determined based on campaign spec]\n\n## Target Audience\n[Derived from campaign specification]\n\n## Estimated Word Count\n1,800 - 2,200 words\n\n## Campaign Connection\nThis content supports the overall package goals as defined in the campaign specification.`,
-            ]
-          );
-        }
+        // IDEA stage: no artifact — human pastes their idea via the task input,
+        // then Ghost builds the content brief in CAMPAIGN_SPEC stage.
       }
       // For person-type workflows, items will be added as agents find targets
 
@@ -163,6 +164,34 @@ export async function POST(req: NextRequest) {
       `UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
       [targetStage, packageId]
     );
+
+    // 6. Trigger the first task for each deliverable's owner agent
+    if (targetStage === "PENDING_APPROVAL" || targetStage === "ACTIVE") {
+      for (const wf of createdWorkflows) {
+        const deliverable = deliverables.find((d: { label: string }) => d.label === wf.label);
+        if (!deliverable) continue;
+        const wfType = WORKFLOW_TYPES[deliverable.workflowType];
+        if (!wfType) continue;
+        const firstStage = wfType.defaultBoard.stages[0];
+
+        // Load the campaign spec for context
+        const specRows = await query<{ brief: string }>(
+          `SELECT (spec->>'brief') as brief FROM "_package" WHERE id = $1`,
+          [packageId]
+        );
+        const brief = specRows[0]?.brief || "";
+
+        const taskDescription = [
+          `Package "${pkg.name}" has entered testing. Your deliverable "${wf.label}" is ready to begin.`,
+          `Workflow ID: ${wf.workflowId}`,
+          `First stage: ${firstStage.label} — ${firstStage.instructions}`,
+          brief ? `Campaign spec: ${brief}` : "",
+          `Please start working on this deliverable. Use your workflow_items tool to manage items in this workflow.`,
+        ].filter(Boolean).join("\n");
+
+        createTask("penny", wf.ownerAgent, taskDescription, "async");
+      }
+    }
 
     return NextResponse.json({
       ok: true,

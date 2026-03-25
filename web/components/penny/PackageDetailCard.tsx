@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { WORKFLOW_TYPES, type StageSpec } from "@/lib/workflow-types";
 import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
-import CampaignSpecModal from "./CampaignSpecModal";
 import ArtifactViewer from "../shared/ArtifactViewer";
 
 const AGENT_COLORS: Record<string, string> = {
@@ -48,15 +47,32 @@ interface PackageDetailCardProps {
 }
 
 export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [useFakeData, setUseFakeData] = useState(() => {
+    // Read from package spec if available (persisted by activate route), default unchecked
+    const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
+    return spec?.useFakeData ?? false;
+  });
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
-  const [specOpen, setSpecOpen] = useState(false);
-  const [brief, setBrief] = useState(pkg.spec?.brief || "");
   const [pkgStage, setPkgStage] = useState(
     // Use stored stage, fallback to checking workflow count
     pkg.stage?.toUpperCase() || (pkg.workflowCount > 0 ? "PENDING_APPROVAL" : "DRAFT")
   );
-  const [simLog, setSimLog] = useState<string[]>([]);
-  const [artifactView, setArtifactView] = useState<{ workflowId?: string; stage?: string; itemType?: string } | null>(null);
+  const [simLog, setSimLogRaw] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = sessionStorage.getItem(`simLog-${pkg.id}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const setSimLog = useCallback((updater: string[] | ((prev: string[]) => string[])) => {
+    setSimLogRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { sessionStorage.setItem(`simLog-${pkg.id}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [pkg.id]);
+  const [artifactView, setArtifactView] = useState<{ workflowId?: string; stage?: string; itemType?: string; agentId?: string } | null>(null);
   // Stage progress: { workflowType: { stageKey: count } }
   const [progress, setProgress] = useState<Record<string, Record<string, number>>>({});
   // Volume tracking: { workflowType: { targetCount, totalItems } }
@@ -104,21 +120,18 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
     return () => clearInterval(interval);
   }, [pkgStage, pkg.id]);
 
+  // Move to Testing mode (no tasks created yet)
   const handleTest = useCallback(async () => {
     try {
       const res = await fetch("/api/crm/packages/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: pkg.id, targetStage: "PENDING_APPROVAL" }),
+        body: JSON.stringify({ packageId: pkg.id, targetStage: "PENDING_APPROVAL", skipTasks: true }),
       });
       const data = await res.json();
       if (data.ok) {
         setPkgStage("PENDING_APPROVAL");
-        setSimLog((prev) => [
-          ...prev,
-          `Testing: created ${data.workflows.length} workflows`,
-          ...data.workflows.map((w: { label: string; ownerAgent: string }) => `  → ${w.label} (${w.ownerAgent})`),
-        ]);
+        setSimLog((prev) => [...prev, `Moved to Testing`]);
       } else {
         setSimLog((prev) => [...prev, `Error: ${data.error}`]);
       }
@@ -127,9 +140,31 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
     }
   }, [pkg.id]);
 
+  // Start the test — create workflows and first task
+  const handleStartTest = useCallback(async () => {
+    try {
+      const res = await fetch("/api/crm/packages/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: pkg.id, targetStage: "PENDING_APPROVAL", useFakeData }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSimLog((prev) => [
+          ...prev,
+          `Started: created ${data.workflows.length} workflows`,
+          ...data.workflows.map((w: { label: string; ownerAgent: string }) => `  → ${w.label} (${w.ownerAgent})`),
+        ]);
+      } else {
+        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+      }
+    } catch (e) {
+      setSimLog((prev) => [...prev, `Start failed: ${e}`]);
+    }
+  }, [pkg.id, useFakeData]);
+
   const handleActivate = useCallback(async () => {
     try {
-      // Just update the stage from PENDING_APPROVAL to ACTIVE
       const res = await fetch("/api/crm/packages/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,10 +173,7 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
       const data = await res.json();
       if (data.ok) {
         setPkgStage("ACTIVE");
-        setSimLog((prev) => [
-          ...prev,
-          `Activated: package is now live`,
-        ]);
+        setSimLog((prev) => [...prev, `Activated: package is now live`]);
       } else {
         setSimLog((prev) => [...prev, `Error: ${data.error}`]);
       }
@@ -150,6 +182,7 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
     }
   }, [pkg.id]);
 
+  // Reset clears test data but stays in current stage (PENDING_APPROVAL)
   const handleReset = useCallback(async () => {
     try {
       const res = await fetch("/api/crm/packages/reset", {
@@ -159,8 +192,11 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
       });
       const data = await res.json();
       if (data.ok) {
-        setPkgStage("DRAFT");
-        setSimLog([`Reset: cleared ${data.cleared.workflows} workflows, ${data.cleared.boards} boards`]);
+        setSimLog([`Reset: cleared ${data.cleared.workflows} workflows, ${data.cleared.boards} boards. Ready to Start Test again.`]);
+        setProgress({});
+        setVolumeInfo({});
+        setArtifactStages({});
+        setWorkflowIds({});
       } else {
         setSimLog((prev) => [...prev, `Reset error: ${data.error}`]);
       }
@@ -169,19 +205,63 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
     }
   }, [pkg.id]);
 
+  // Back to Draft — reset data and move stage back
+  const handleBackToDraft = useCallback(async () => {
+    try {
+      const res = await fetch("/api/crm/packages/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: pkg.id, targetStage: "DRAFT" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setPkgStage("DRAFT");
+        setSimLog([]);
+        try { sessionStorage.removeItem(`simLog-${pkg.id}`); } catch {}
+        setProgress({});
+        setVolumeInfo({});
+        setArtifactStages({});
+        setWorkflowIds({});
+      } else {
+        setSimLog((prev) => [...prev, `Error: ${data.error}`]);
+      }
+    } catch (e) {
+      setSimLog((prev) => [...prev, `Failed: ${e}`]);
+    }
+  }, [pkg.id]);
+
   return (
     <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2 flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
-            {pkg.name}
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="min-w-0 flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--text-tertiary)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            className={`shrink-0 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
+              {pkg.name}
+            </div>
+            {!isCollapsed && (
+              <div className="text-[10px] text-[var(--text-tertiary)]">
+                {pkg.templateId}
+              </div>
+            )}
           </div>
-          <div className="text-[10px] text-[var(--text-tertiary)]">
-            {pkg.templateId}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
           {pkgStage === "DRAFT" && (
             <button
               onClick={handleTest}
@@ -192,6 +272,27 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
           )}
           {pkgStage === "PENDING_APPROVAL" && (
             <>
+              <label className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={useFakeData}
+                  onChange={(e) => setUseFakeData(e.target.checked)}
+                  className="w-3 h-3 rounded accent-[#D4A017]"
+                />
+                Fake Data
+              </label>
+              <button
+                onClick={handleStartTest}
+                className="text-[10px] px-2.5 py-1 rounded-full bg-[#D4A017] text-white font-semibold hover:bg-[#b8891a] transition-colors"
+              >
+                Start Test
+              </button>
+              <button
+                onClick={handleReset}
+                className="text-[10px] px-2.5 py-1 rounded-full bg-[#555] text-white font-semibold hover:bg-[#777] transition-colors"
+              >
+                Reset
+              </button>
               <button
                 onClick={handleActivate}
                 className="text-[10px] px-2.5 py-1 rounded-full bg-[#1D9E75] text-white font-semibold hover:bg-[#17865f] transition-colors"
@@ -199,10 +300,10 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
                 Activate
               </button>
               <button
-                onClick={handleReset}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[#555] text-white font-semibold hover:bg-[#777] transition-colors"
+                onClick={handleBackToDraft}
+                className="text-[10px] px-2.5 py-1 rounded-full bg-[#2563EB] text-white font-semibold hover:bg-[#1d4ed8] transition-colors"
               >
-                Reset
+                Draft
               </button>
             </>
           )}
@@ -214,51 +315,13 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
               Reset
             </button>
           )}
-          <span
-            className="text-[9px] px-2 py-0.5 rounded-full text-white font-semibold uppercase"
-            style={{ backgroundColor: STAGE_COLORS[pkgStage] || "#6b8a9e" }}
-          >
-            {pkgStage.replace("_", " ")}
-          </span>
         </div>
       </div>
 
-      {/* Campaign Specification */}
-      <div className="border-t border-[var(--border-color)]">
-        <button
-          onClick={() => setSpecOpen(true)}
-          className="w-full px-3 py-1.5 flex items-center gap-1.5 text-left hover:bg-[var(--bg-tertiary)] transition-colors"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={brief ? "#E67E22" : "var(--text-tertiary)"} strokeWidth="2" strokeLinecap="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-          </svg>
-          <span className="text-[10px] font-semibold text-[var(--text-secondary)]">
-            Campaign Spec
-          </span>
-          {brief ? (
-            <span className="text-[10px] text-[var(--text-tertiary)] truncate ml-1">
-              {brief.slice(0, 50)}...
-            </span>
-          ) : (
-            <span className="text-[10px] text-[#E67E22] ml-1">
-              Add specification
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Campaign Spec Modal — portal to escape overflow */}
-      {specOpen && typeof document !== "undefined" && createPortal(
-        <CampaignSpecModal
-          packageId={pkg.id}
-          packageName={pkg.name}
-          initialSpec={brief}
-          onClose={() => setSpecOpen(false)}
-          onSave={(newSpec) => setBrief(newSpec)}
-        />,
-        document.body
-      )}
+      {/* Collapsible body */}
+      {!isCollapsed && (
+      <>
+      {/* Campaign Spec is created as an artifact during the workflow process */}
 
       {/* Deliverables */}
       {deliverables.length > 0 && (
@@ -296,34 +359,11 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
                 onInspect={() => setArtifactView({
                   workflowId: workflowIds[d.workflowType],
                   itemType: wfType?.itemType || "content",
+                  agentId: d.ownerAgent,
                 })}
               />
             );
           })}
-        </div>
-      )}
-
-      {/* Simulation Log */}
-      {simLog.length > 0 && (
-        <div className="border-t border-[var(--border-color)] px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase">
-              Simulation Log
-            </span>
-            <button
-              onClick={() => setSimLog([])}
-              className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-            >
-              Clear
-            </button>
-          </div>
-          <div className="bg-[var(--bg-primary)] rounded border border-[var(--border-color)] p-2 max-h-40 overflow-y-auto">
-            {simLog.map((line, i) => (
-              <div key={i} className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
-                {line}
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -339,11 +379,16 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
         </div>
       )}
 
+      </>
+      )}
+
+
       {/* Artifact Viewer — portal to escape overflow */}
       {artifactView && typeof document !== "undefined" && createPortal(
         <ArtifactViewer
           workflowId={artifactView.workflowId}
           itemType={artifactView.itemType || "content"}
+          agentId={artifactView.agentId}
           onClose={() => setArtifactView(null)}
         />,
         document.body
@@ -540,7 +585,6 @@ function DeliverableRow({
         // Detect cycles: find stages that transition back to an earlier stage
         const wfType = WORKFLOW_TYPES[allDeliverables[deliverableIndex]?.workflowType];
         const transitions = wfType?.defaultBoard?.transitions || {};
-        // Find cycle pairs: { from: stageKey, to: stageKey } where 'to' appears earlier in stages
         const cycles: Array<{ fromIdx: number; toIdx: number }> = [];
         stages.forEach((s, i) => {
           const targets = transitions[s.key] || [];
@@ -551,12 +595,7 @@ function DeliverableRow({
             }
           });
         });
-
-        // Build a set: the arrow between stages[i] and stages[i+1] is a cycle
-        // if stages[i+1] transitions back to stages[i] (or earlier)
-        const cycleArrowAfter = new Set(
-          cycles.map(c => c.toIdx) // arrow after the target stage shows cycle
-        );
+        const cycleArrowAfter = new Set(cycles.map(c => c.toIdx));
 
         return (
           <div className="flex flex-wrap gap-1.5 items-center">
@@ -565,7 +604,6 @@ function DeliverableRow({
               const isExpanded = expandedStage === fullKey;
               const hasNote = stageNotes?.[s.key];
               const count = stageCounts[s.key] || 0;
-              // Show cycle icon for the arrow after this stage if the next stage cycles back
               const showCycleArrow = cycleArrowAfter.has(i);
 
               return (
@@ -598,34 +636,14 @@ function DeliverableRow({
                   </button>
                   {i < stages.length - 1 && (
                     showCycleArrow ? (
-                      /* Cycle icon between stages that loop back */
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="var(--text-tertiary)"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-label="Cycles back"
-                      >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17 2l4 4-4 4" />
                         <path d="M3 11V9a4 4 0 0 1 4-4h14" />
                         <path d="M7 22l-4-4 4-4" />
                         <path d="M21 13v2a4 4 0 0 1-4 4H3" />
                       </svg>
                     ) : (
-                      /* Normal forward arrow */
-                      <svg
-                        width="8"
-                        height="8"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="var(--text-tertiary)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                      >
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5" strokeLinecap="round">
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
                     )

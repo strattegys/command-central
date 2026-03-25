@@ -223,7 +223,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     workflowTypes: [],
     ttsVoice: "Zephyr",
     vectorMemory: true,
-    modelName: "gemini-2.5-pro",
+    provider: "groq",
+    modelName: "llama-3.3-70b-versatile",
     temperature: 0.2,
     delegation: {
       canDelegateTo: [],
@@ -287,11 +288,12 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "delegate_task",
       "twenty_crm",
       "workflow_items",
-      "beehiiv",
       "publish_article",
+      "article_builder",
     ],
     capabilities: [
       "Content research",
+      "Article generation",
       "Blog posts",
       "Content strategy",
       "Prospect discovery",
@@ -400,7 +402,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Handles pricing, invoicing, and financial tracking. " +
       "Currently a placeholder — tools and capabilities coming soon.",
     category: "FinOps",
-    color: "#FFFFFF",
+    color: "#1A1A2E",
     avatar: "/api/agent-avatar?id=king",
     sessionFile: R("/root/.kingbot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.kingbot/system-prompt.md"),
@@ -419,42 +421,6 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     },
   },
 
-  // ─── Toys ───
-
-  rainbow: {
-    id: "rainbow",
-    name: "Rainbow",
-    role: "Abby's Magical AI Friend",
-    description:
-      "Kid-friendly AI companion for stories, learning, games, and creativity. " +
-      "Runs periodic heartbeat for health checks.",
-    category: "Toys",
-    color: "#534AB7",
-    avatar: "/api/agent-avatar?id=rainbow",
-    sessionFile: R("/root/.avabot/sessions/web_govind.jsonl"),
-    systemPromptFile: R("/root/.avabot/system-prompt.md"),
-    memoryDir: R("/root/.avabot/memory"),
-    tools: ["web_search", "memory"],
-    capabilities: ["Stories", "Learning", "Games", "Creativity"],
-    connections: [{ label: "Web search", connected: true, toolId: "web_search" }],
-    routines: [],
-    heartbeat: {
-      type: "simple",
-      schedule: "*/30 * * * *",
-      checks: [
-        {
-          name: "Health Check",
-          description: "Periodic health check",
-          priority: "low",
-        },
-      ],
-    },
-    workflowTypes: [],
-    delegation: {
-      canDelegateTo: [],
-      acceptsTaskTypes: [],
-    },
-  },
 };
 
 /** Get an agent spec by ID. Falls back to Tim if not found. */
@@ -464,13 +430,12 @@ export function getAgentSpec(agentId: string): AgentSpec {
 
 /** Get all agent specs as an array, ordered for sidebar display. */
 export function getAllAgentSpecs(): AgentSpec[] {
-  // Sidebar ordering: Utility, MarkOps, ContentOps, FinOps, Toys
+  // Sidebar ordering: Utility, MarkOps, ContentOps, FinOps
   const order: AgentSpec["category"][] = [
     "Utility",
     "MarkOps",
     "ContentOps",
     "FinOps",
-    "Toys",
   ];
   return Object.values(AGENT_REGISTRY).sort(
     (a, b) => order.indexOf(a.category) - order.indexOf(b.category)

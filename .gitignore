@@ -17,6 +17,9 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Claude Code local overrides (permissions history; do not commit)
+.claude/settings.local.json
+
 # Editor files
 .vscode/
 .idea/

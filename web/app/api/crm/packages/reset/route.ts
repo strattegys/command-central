@@ -13,7 +13,7 @@ import { query } from "@/lib/db";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { packageId } = await req.json();
+    const { packageId, targetStage } = await req.json();
     if (!packageId) {
       return NextResponse.json({ error: "packageId required" }, { status: 400 });
     }
@@ -75,11 +75,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Reset package stage to DRAFT
-    await query(
-      `UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
-      ["DRAFT", packageId]
-    );
+    // 6. Reset package stage (default: keep current stage, or move to targetStage if specified)
+    if (targetStage) {
+      await query(
+        `UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
+        [targetStage, packageId]
+      );
+    }
 
     return NextResponse.json({
       ok: true,

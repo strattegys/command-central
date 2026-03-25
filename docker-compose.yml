@@ -1,0 +1,34 @@
+services:
+  # ── Reverse proxy (auto-SSL via Let's Encrypt) ──
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  # ── Command Central (Next.js standalone) ──
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    env_file: ./web/.env.local
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOSTNAME=0.0.0.0
+      - AGENT_ROOT=/agents
+    expose:
+      - "3001"
+
+volumes:
+  caddy_data:
+  caddy_config:

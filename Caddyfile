@@ -1,0 +1,4 @@
+# ── Command Central reverse proxy (auto-SSL via Let's Encrypt) ──
+stratt-central.b2bcontentartist.com {
+	reverse_proxy web:3001
+}

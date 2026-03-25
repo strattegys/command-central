@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     }>(
       `SELECT w.id, w.name, w."ownerAgent", w."packageId", w.stage, w.spec, w."itemType"
        FROM "_workflow" w
-       WHERE w."deletedAt" IS NULL AND w.stage = 'ACTIVE'
+       WHERE w."deletedAt" IS NULL AND w.stage::text = 'ACTIVE'
        ORDER BY w."updatedAt" DESC`
     );
 
@@ -85,7 +85,13 @@ export async function GET(req: NextRequest) {
 
     for (const wf of filteredWorkflows) {
       // Determine workflow type from the spec.workflowType field
-      const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec as unknown as string) : wf.spec;
+      let wfSpec: Record<string, unknown> | null = null;
+      try {
+        wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec as unknown as string) : wf.spec;
+      } catch {
+        // spec is not valid JSON (e.g. markdown) — skip this workflow
+        continue;
+      }
       const matchedType = wfSpec?.workflowType as string | undefined;
 
       if (!matchedType || !humanStages.has(matchedType)) continue;

@@ -33,18 +33,19 @@ Nginx                        <- TLS termination, reverse proxy
 ## Directory Structure
 
 ```
+agents/               <- System prompts (one folder per agent)
 web/                  <- Next.js app (the main project)
   app/                <- Pages and API routes
   components/         <- React components
   lib/                <- Agent config, tools, cron, heartbeat
   public/             <- Static assets, avatars, sounds
 tools/                <- Server-side CRM/LinkedIn shell scripts
-avabot/               <- RainbowBot Python server source
-friday/               <- Friday agent system prompt
 scripts/              <- Deployment scripts
-  deploy-web.sh       <- Main deploy script
-  deploy_avabot.sh    <- RainbowBot deploy
+  deploy-web.sh       <- Manual fallback deploy
 docs/                 <- Historical migration docs
+docker-compose.yml    <- Production stack (Caddy + Next.js)
+docker-compose.dev.yml <- Local dev stack (Docker)
+Caddyfile             <- Reverse proxy config
 ```
 
 ## Deployment
