@@ -84,7 +84,7 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
 
   return (
     <div
-      className="hidden md:flex w-[10%] shrink-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
       aria-label="System status"
     >
       <div className="shrink-0 h-11 border-b border-[var(--border-color)] px-2 flex items-center gap-1.5">

@@ -8,6 +8,7 @@ on:
       - 'agents/**'
       - 'Caddyfile'
       - 'docker-compose.yml'
+      - '.dockerignore'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -28,6 +29,9 @@ jobs:
 
       - name: TypeScript check
         run: cd web && npx tsc --noEmit
+
+      - name: Production build (matches Docker builder)
+        run: cd web && npx next build
 
   deploy:
     needs: validate
@@ -52,6 +56,11 @@ jobs:
           echo "Pulling latest code..."
           git fetch origin master
           git reset --hard origin/master
+
+          if [ ! -f web/.env.local ]; then
+            echo "ERROR: web/.env.local is missing. Create it on the server (copy from web/.env.local.example and fill secrets)."
+            exit 1
+          fi
 
           # Build and restart containers
           echo "Building Docker images..."

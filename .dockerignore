@@ -1,0 +1,13 @@
+# Build context is repo root (docker-compose.yml: context: .)
+# Docker only reads .dockerignore from the context root, not beside the Dockerfile.
+
+web/node_modules
+web/.next
+web/.env*
+!web/.env.local.example
+web/.dev-store
+.git
+.github
+.claude
+**/.DS_Store
+**/*.tsbuildinfo

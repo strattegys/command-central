@@ -66,12 +66,25 @@ Auto-deploys via GitHub Actions on push to `master` (web/ changes only).
 
 ## Local Development
 
+**Recommended (Docker, matches production-style env and port 3001):**
+
+```bash
+cd COMMAND-CENTRAL   # repo root containing docker-compose.dev.yml
+docker compose -f docker-compose.dev.yml up
+```
+
+Then open **http://localhost:3001** (hot reload via mounted `web/`). Uses `web/.env.local` and `host.docker.internal` for CRM DB — see comments in [`docker-compose.dev.yml`](docker-compose.dev.yml).
+
+**Optional (Node on the host, same port as Docker):**
+
 ```bash
 cd web
 npm install
 cp .env.local.example .env.local  # Fill in API keys
-npm run dev                        # http://localhost:3001
+npm run dev                        # http://localhost:3001 (see package.json)
 ```
+
+Do **not** run both Docker and `npm run dev` on **3001** at the same time — pick one.
 
 ## Key Integrations
 

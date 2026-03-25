@@ -12,6 +12,7 @@ import HumanTasksPanel from "@/components/friday/HumanTasksPanel";
 import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import SuziNotesPanel from "@/components/suzi/SuziNotesPanel";
+import StatusRail from "@/components/StatusRail";
 
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
@@ -566,8 +567,8 @@ function ChatPage() {
         />
       </div>
 
-      {/* Desktop: Sidebar */}
-      <div className="hidden md:flex">
+      {/* Desktop: sidebar + chat + agent panel + status rail (grid reserves the right column) */}
+      <div className="hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_384px_minmax(0,1fr)_minmax(160px,10%)] md:grid-rows-1">
         <AgentSidebar
           agents={agents}
           activeAgent={activeAgent}
@@ -583,10 +584,9 @@ function ChatPage() {
             }
           }}
         />
-      </div>
 
       {/* Desktop: Main chat area (narrow) */}
-      <div className="hidden md:flex w-[384px] min-w-[320px] flex-col min-h-0 bg-[var(--bg-primary)]">
+      <div className="flex w-full min-w-0 min-h-0 flex-col bg-[var(--bg-primary)]">
         {/* Top bar */}
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
           <div className="flex-1 min-w-0" />
@@ -663,7 +663,7 @@ function ChatPage() {
       </div>
 
       {/* Desktop: Right panel with persistent agent header */}
-      <div className="hidden md:flex flex-1 min-w-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
+      <div className="flex min-w-0 min-h-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
         {/* Persistent agent header + nav icons */}
         <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
           <div
@@ -806,7 +806,7 @@ function ChatPage() {
               </svg>
             </button>
           </div>
-          <span className="ml-auto text-sm font-mono text-[var(--text-tertiary)]" title="Build code">b25b</span>
+          <span className="ml-auto text-sm font-mono text-[var(--text-tertiary)]" title="Build code">B25C</span>
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">
@@ -824,6 +824,13 @@ function ChatPage() {
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}
         </div>
+      </div>
+
+        <StatusRail
+          agents={agents}
+          pendingTaskCount={pendingTaskCount}
+          testingTaskCount={testingTaskCount}
+        />
       </div>
 
     </div>
