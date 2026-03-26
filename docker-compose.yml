@@ -20,6 +20,7 @@ services:
       context: .
       dockerfile: web/Dockerfile
     restart: unless-stopped
+    # Must include INWORLD_TTS_KEY for Suzi/Tim read-aloud (same as Rainbow Bot). On droplet: /opt/agent-tim/web/.env.local
     env_file: ./web/.env.local
     # Reach Postgres (Twenty CRM) bound on the droplet host — 127.0.0.1 inside the container is NOT the host.
     extra_hosts:

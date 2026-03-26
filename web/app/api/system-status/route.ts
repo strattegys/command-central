@@ -39,12 +39,14 @@ function buildSystemAlerts(): SystemStatusAlert[] {
   const hasInworld = !!process.env.INWORLD_TTS_KEY?.trim();
   const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
 
+  const voiceMap = ttsVoiceRegistrySummary();
+
   if (voiced.length > 0 && !hasInworld) {
     alerts.push({
       id: "inworld_tts_key",
       severity: "warn",
       title: "Voice (Inworld) not configured",
-      message: `${names} use read-aloud replies, but INWORLD_TTS_KEY is missing in web/.env.local. Add the same key as Rainbow Bot and restart the web container.`,
+      message: `${names} use read-aloud (registry: ${voiceMap}). Set INWORLD_TTS_KEY in web/.env.local — same value as Rainbow Bot (PROJECT-SERVER/rainbow). On production, that file lives on the droplet under the repo (e.g. /opt/agent-tim/web/.env.local); restart the web container after editing.`,
     });
   }
 
@@ -303,20 +305,19 @@ export async function GET() {
   const inworldTts: ProbeResult = {
     id: "inworld_tts",
     label: "Inworld TTS",
-    status: hasInworldKey ? "ok" : "skipped",
+    status: hasInworldKey ? "ok" : "down",
     detail: hasInworldKey
       ? [
-          registryVoices ? `agents ${registryVoices}` : null,
-          envVoice ? `env ${envVoice}` : "env voice unset (per-agent IDs used)",
+          registryVoices ? `voices ${registryVoices}` : null,
+          envVoice ? `INWORLD_VOICE_ID=${envVoice}` : "per-agent voice from registry (Suzi=Olivia, Tim=Timothy)",
         ]
           .filter(Boolean)
           .join(" · ")
       : [
-          "add INWORLD_TTS_KEY to web/.env.local",
-          registryVoices ? `registry: ${registryVoices}` : null,
+          "set INWORLD_TTS_KEY in web/.env.local (prod: on server, then docker compose up -d)",
+          registryVoices ? `registry ${registryVoices}` : "Suzi=Olivia, Tim=Timothy",
         ]
-          .filter(Boolean)
-          .join(" — "),
+          .join(" · "),
   };
 
   const services: ProbeResult[] = [
