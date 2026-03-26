@@ -32,6 +32,13 @@ interface BackendConfig {
   routines: Routine[];
 }
 
+interface VoiceRuntime {
+  registryVoiceId: string | null;
+  inworldKeyPresent: boolean;
+  envFallbackVoiceId: string | null;
+  geminiPresent: boolean;
+}
+
 interface AgentInfoPanelProps {
   agent: AgentConfig;
   onAvatarChange?: (agentId: string, newUrl: string) => void;
@@ -45,6 +52,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
   const [agentSummary, setAgentSummary] = useState("");
   const [promptCollapsed, setPromptCollapsed] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [voiceRuntime, setVoiceRuntime] = useState<VoiceRuntime | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load all dashboard data on agent change
@@ -55,6 +63,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
     setCronJobs([]);
     setAgentSummary("");
     setPromptCollapsed(true);
+    setVoiceRuntime(null);
 
     fetch(`/api/agent-summary?agent=${agent.id}`)
       .then((res) => res.json())
@@ -66,6 +75,9 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
       .then((data) => {
         if (data.approvalPhrases) setApprovalPhrases(data.approvalPhrases);
         if (data.config) setBackendConfig(data.config);
+        if (data.voiceRuntime && typeof data.voiceRuntime === "object") {
+          setVoiceRuntime(data.voiceRuntime as VoiceRuntime);
+        }
       })
       .catch(() => {});
 
@@ -176,6 +188,58 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
                   </span>
                 </div>
               ))}
+              {agent.ttsVoice && (
+                <div className="flex items-start gap-2 text-xs pt-1 border-t border-[var(--border-color)]">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0 mt-1"
+                    style={{
+                      background:
+                        voiceRuntime == null
+                          ? "#888"
+                          : voiceRuntime.inworldKeyPresent
+                            ? "#1D9E75"
+                            : "#E54D2E",
+                    }}
+                    title={voiceRuntime == null ? "Loading voice status…" : undefined}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[var(--text-primary)]">Voice (Inworld)</span>
+                      <span
+                        className="text-[11px] shrink-0"
+                        style={{
+                          color:
+                            voiceRuntime == null
+                              ? "#888"
+                              : voiceRuntime.inworldKeyPresent
+                                ? "#1D9E75"
+                                : "#E54D2E",
+                        }}
+                      >
+                        {voiceRuntime == null
+                          ? "…"
+                          : voiceRuntime.inworldKeyPresent
+                            ? "Ready"
+                            : "API key missing"}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug">
+                      Voice ID <span className="font-mono text-[var(--text-secondary)]">{agent.ttsVoice}</span>
+                      {voiceRuntime?.envFallbackVoiceId ? (
+                        <span>
+                          {" "}
+                          · env fallback <span className="font-mono">{voiceRuntime.envFallbackVoiceId}</span>
+                        </span>
+                      ) : null}
+                      {voiceRuntime && !voiceRuntime.geminiPresent ? (
+                        <span className="block mt-1 text-[#F59E0B]">
+                          GEMINI_API_KEY unset — long replies use truncation before TTS.
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             {/* Capability + tool tags */}
             <div className="pt-2 border-t border-[var(--border-color)] flex flex-wrap gap-1">

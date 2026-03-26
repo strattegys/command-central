@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { getAgentConfig } from "@/lib/agent-config";
+import { getAgentSpec } from "@/lib/agent-registry";
 
 function parseApprovalCommands(systemPromptFile: string): string[] {
   try {
@@ -27,5 +28,16 @@ export async function GET(req: NextRequest) {
   const agentId = req.nextUrl.searchParams.get("agent") || "tim";
   const config = getAgentConfig(agentId);
   const approvalPhrases = parseApprovalCommands(config.systemPromptFile);
-  return NextResponse.json({ config, approvalPhrases });
+  const spec = getAgentSpec(agentId);
+  const ttsVoice = spec.ttsVoice?.trim() || null;
+  return NextResponse.json({
+    config,
+    approvalPhrases,
+    voiceRuntime: {
+      registryVoiceId: ttsVoice,
+      inworldKeyPresent: !!process.env.INWORLD_TTS_KEY?.trim(),
+      envFallbackVoiceId: process.env.INWORLD_VOICE_ID?.trim() || null,
+      geminiPresent: !!process.env.GEMINI_API_KEY?.trim(),
+    },
+  });
 }

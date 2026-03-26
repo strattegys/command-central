@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Client } from "pg";
+import { getAllAgentSpecs } from "@/lib/agent-registry";
 
 const PROBE_MS = 4000;
 
@@ -11,6 +12,53 @@ interface ProbeResult {
   status: ProbeStatus;
   ms?: number;
   detail?: string;
+}
+
+export interface SystemStatusAlert {
+  id: string;
+  severity: "error" | "warn" | "info";
+  title: string;
+  message: string;
+}
+
+/** Agents with spoken replies (Inworld voiceId from registry, e.g. Suzi → Olivia). */
+function agentsWithTtsVoice() {
+  return getAllAgentSpecs().filter((s) => s.ttsVoice?.trim());
+}
+
+function ttsVoiceRegistrySummary(): string {
+  return agentsWithTtsVoice()
+    .map((s) => `${s.name}=${s.ttsVoice}`)
+    .join(", ");
+}
+
+function buildSystemAlerts(): SystemStatusAlert[] {
+  const alerts: SystemStatusAlert[] = [];
+  const voiced = agentsWithTtsVoice();
+  const names = voiced.map((a) => a.name).join(", ");
+  const hasInworld = !!process.env.INWORLD_TTS_KEY?.trim();
+  const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
+
+  if (voiced.length > 0 && !hasInworld) {
+    alerts.push({
+      id: "inworld_tts_key",
+      severity: "warn",
+      title: "Voice (Inworld) not configured",
+      message: `${names} use read-aloud replies, but INWORLD_TTS_KEY is missing in web/.env.local. Add the same key as Rainbow Bot and restart the web container.`,
+    });
+  }
+
+  if (voiced.length > 0 && hasInworld && !hasGemini) {
+    alerts.push({
+      id: "tts_summarize_gemini",
+      severity: "info",
+      title: "Long messages: TTS summarization",
+      message:
+        "GEMINI_API_KEY is unset. Short replies still speak; very long replies use a simple truncation instead of Gemini summarization before TTS.",
+    });
+  }
+
+  return alerts;
 }
 
 async function probeHttp(
@@ -250,13 +298,25 @@ export async function GET() {
   ]);
 
   const hasInworldKey = !!process.env.INWORLD_TTS_KEY?.trim();
+  const registryVoices = ttsVoiceRegistrySummary();
+  const envVoice = process.env.INWORLD_VOICE_ID?.trim();
   const inworldTts: ProbeResult = {
     id: "inworld_tts",
     label: "Inworld TTS",
     status: hasInworldKey ? "ok" : "skipped",
     detail: hasInworldKey
-      ? `voice ${process.env.INWORLD_VOICE_ID?.trim() || "default"}`
-      : "add INWORLD_TTS_KEY to web/.env.local",
+      ? [
+          registryVoices ? `agents ${registryVoices}` : null,
+          envVoice ? `env ${envVoice}` : "env voice unset (per-agent IDs used)",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : [
+          "add INWORLD_TTS_KEY to web/.env.local",
+          registryVoices ? `registry: ${registryVoices}` : null,
+        ]
+          .filter(Boolean)
+          .join(" — "),
   };
 
   const services: ProbeResult[] = [
@@ -270,5 +330,6 @@ export async function GET() {
   return NextResponse.json({
     checkedAt: new Date().toISOString(),
     services,
+    alerts: buildSystemAlerts(),
   });
 }

@@ -20,6 +20,22 @@ interface ServiceRow {
   detail?: string;
 }
 
+interface SystemNotice {
+  id: string;
+  severity: "error" | "warn" | "info";
+  title: string;
+  message: string;
+}
+
+function serviceSubline(s: ServiceRow): string {
+  if (s.status === "down") return s.detail || "unreachable";
+  if (s.status === "skipped") return s.detail || "not configured";
+  const parts: string[] = [];
+  if (s.detail?.trim()) parts.push(s.detail.trim());
+  if (s.ms != null && s.ms > 0) parts.push(`${s.ms}ms`);
+  return parts.length > 0 ? parts.join(" · ") : "OK";
+}
+
 interface StatusRailProps {
   agents: AgentConfig[];
   pendingTaskCount: number;
@@ -43,20 +59,32 @@ function statusDotClass(s: ServiceRow["status"]) {
   return "bg-[var(--text-tertiary)]";
 }
 
+function noticeSeverityClass(sev: SystemNotice["severity"]) {
+  if (sev === "error") return "border-red-500/40 bg-red-500/10 text-red-200";
+  if (sev === "warn") return "border-[#F59E0B]/40 bg-[#F59E0B]/10 text-[var(--text-primary)]";
+  return "border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]";
+}
+
 export default function StatusRail({ agents, pendingTaskCount, testingTaskCount }: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
+  const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
 
   const teamAgents = agents.filter((a) => a.category !== "Toys");
 
   const fetchStatus = useCallback(() => {
-    fetch("/api/system-status")
+    fetch("/api/system-status", { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data.services)) setServices(data.services);
         else setServices([]);
+        if (Array.isArray(data.alerts)) setSystemNotices(data.alerts);
+        else setSystemNotices([]);
       })
-      .catch(() => setServices([]));
+      .catch(() => {
+        setServices([]);
+        setSystemNotices([]);
+      });
   }, []);
 
   const fetchNotifications = useCallback(() => {
@@ -114,8 +142,8 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
                 <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${statusDotClass(s.status)}`} />
                 <span className="min-w-0 flex-1">
                   <span className="text-[var(--text-secondary)] block truncate">{s.label}</span>
-                  <span className="text-[var(--text-tertiary)]">
-                    {s.status === "skipped" ? "—" : s.status === "ok" ? (s.ms != null && s.ms > 0 ? `${s.ms}ms` : "OK") : s.detail || "down"}
+                  <span className="text-[var(--text-tertiary)] break-words whitespace-normal leading-snug">
+                    {serviceSubline(s)}
                   </span>
                 </span>
               </li>
@@ -155,6 +183,25 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
             })}
           </ul>
         </section>
+
+        {systemNotices.length > 0 && (
+          <section>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+              Notices
+            </div>
+            <ul className="space-y-2">
+              {systemNotices.map((n) => (
+                <li
+                  key={n.id}
+                  className={`rounded-md border px-2 py-1.5 text-[10px] leading-snug ${noticeSeverityClass(n.severity)}`}
+                >
+                  <div className="font-semibold text-[var(--text-primary)]">{n.title}</div>
+                  <div className="text-[var(--text-secondary)] mt-0.5">{n.message}</div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="min-h-0 flex-1 flex flex-col">
           <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
