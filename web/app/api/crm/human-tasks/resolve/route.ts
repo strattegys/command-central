@@ -12,6 +12,7 @@ import {
 import { sendWarmOutreachLinkedInDm } from "@/lib/unipile-send";
 import { extractPlainDmFromDraftMarkdown } from "@/lib/warm-outreach-draft";
 import { insertPackageBriefArtifactIfPresent, PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
+import { spawnAfterWarmOutreachEnded } from "@/lib/warm-outreach-discovery";
 
 function logTs(message: string): string {
   return `[${new Date().toISOString()}] ${message}`;
@@ -380,7 +381,7 @@ export async function POST(req: NextRequest) {
     if (finalStage === "ENDED" && wfTypeId === "warm-outreach") {
       const spec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
       const targetCount = typeof spec?.targetCount === "number" ? spec.targetCount : 10;
-      const spawned = await spawnNextWarmOutreachItem(wf.id, targetCount);
+      const spawned = await spawnAfterWarmOutreachEnded(wf.id, targetCount);
       if (spawned) {
         logs.push(`Spawned next warm-outreach slot: item ${spawned}`);
       }
@@ -414,46 +415,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/** Create the next placeholder person + workflow item at AWAITING_CONTACT when under targetCount. */
-async function spawnNextWarmOutreachItem(
-  workflowId: string,
-  targetCount: number
-): Promise<string | null> {
-  const cntRows = await query<{ c: string }>(
-    `SELECT COUNT(*)::text AS c FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
-    [workflowId]
-  );
-  const n = parseInt(cntRows[0]?.c || "0", 10);
-  if (n >= targetCount) return null;
-
-  const wfRows = await query<{ packageId: string | null }>(
-    `SELECT "packageId" FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
-    [workflowId]
-  );
-  const packageId = wfRows[0]?.packageId ?? null;
-
-  const pRows = await query<{ id: string }>(
-    `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
-     VALUES ($1, $2, $3, NOW(), NOW())
-     RETURNING id`,
-    ["Next", "Contact", "Warm outreach — awaiting contact details"]
-  );
-  const personId = (pRows[0] as Record<string, unknown>)?.id as string;
-  if (!personId) return null;
-
-  const ins = await query<{ id: string }>(
-    `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
-     VALUES ($1, 'AWAITING_CONTACT', 'person', $2, NOW(), NOW())
-     RETURNING id`,
-    [workflowId, personId]
-  );
-  const itemId = ins[0]?.id ?? null;
-  if (!itemId) return null;
-
-  await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
-  return itemId;
 }
 
 /**

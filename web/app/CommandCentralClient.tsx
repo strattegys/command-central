@@ -8,19 +8,23 @@ import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
-import HumanTasksPanel from "@/components/friday/HumanTasksPanel";
 import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
+import TimAgentPanel from "@/components/tim/TimAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import StatusRail from "@/components/StatusRail";
 
+import AgentAvatar from "@/components/AgentAvatar";
 import NotificationBell from "@/components/NotificationBell";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
+import { getAppBrandTitle } from "@/lib/app-brand";
 import Link from "next/link";
 
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
+
+type RightPanel = "info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks" | "messages";
 
 export default function CommandCentralClient() {
   const searchParams = useSearchParams();
@@ -28,10 +32,11 @@ export default function CommandCentralClient() {
   const paramPanel = searchParams.get("panel");
 
   // Each agent's default panel when selected
-  function defaultPanelFor(agentId: string): "info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks" {
-    if (agentId === "friday") return "tasks";
+  function defaultPanelFor(agentId: string): RightPanel {
+    if (agentId === "friday") return "dashboard";
     if (agentId === "penny") return "dashboard";
     if (agentId === "suzi") return "reminders";
+    if (agentId === "tim") return "messages";
     if (agentHasKanban(agentId)) return "kanban";
     return "info";
   }
@@ -39,14 +44,33 @@ export default function CommandCentralClient() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState(paramAgent || "suzi");
-  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks">(
-    (paramPanel as "info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks") || defaultPanelFor(paramAgent || "suzi")
-  );
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    const agent = paramAgent || "suzi";
+    const p = paramPanel as RightPanel | null;
+    if (agent === "friday" && p === "tasks") return "dashboard";
+    return p || defaultPanelFor(agent);
+  });
+  useEffect(() => {
+    setRightPanel((prev) =>
+      prev === "messages" && activeAgent !== "tim" ? defaultPanelFor(activeAgent) : prev
+    );
+  }, [activeAgent]);
+
+  useEffect(() => {
+    setRightPanel((prev) => (activeAgent === "tim" && prev === "info" ? "messages" : prev));
+  }, [activeAgent]);
+
+  useEffect(() => {
+    setRightPanel((prev) =>
+      activeAgent === "friday" && prev === "tasks" ? "dashboard" : prev
+    );
+  }, [activeAgent]);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
 
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   const [testingTaskCount, setTestingTaskCount] = useState(0);
+  const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -119,6 +143,7 @@ export default function CommandCentralClient() {
   // No HEAD-request discovery needed — the API is the single source of truth.
 
   const agent = agents.find((a) => a.id === activeAgent) || agents[0];
+  const appBrandTitle = getAppBrandTitle();
 
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
@@ -188,6 +213,10 @@ export default function CommandCentralClient() {
       fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL")
         .then((r) => r.json())
         .then((d) => setTestingTaskCount(d.count || 0))
+        .catch(() => {});
+      fetch("/api/crm/human-tasks?ownerAgent=tim&messagingOnly=true&packageStage=ACTIVE")
+        .then((r) => r.json())
+        .then((d) => setTimMessagingTaskCount(d.count || 0))
         .catch(() => {});
     };
     checkTasks();
@@ -437,9 +466,14 @@ export default function CommandCentralClient() {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
-        <div className="h-12 shrink-0 border-b border-[var(--border-color)] flex items-center px-4 gap-1">
-          <span className="text-sm font-medium text-[var(--text-primary)]">Agents</span>
-          <div className="ml-auto">
+        <div className="h-12 shrink-0 border-b border-[var(--border-color)] flex items-center px-3 gap-2 min-w-0">
+          <span
+            className="text-xs font-semibold text-[var(--text-primary)] leading-tight truncate min-w-0"
+            title={appBrandTitle}
+          >
+            {appBrandTitle}
+          </span>
+          <div className="ml-auto shrink-0">
             <NotificationBell />
           </div>
         </div>
@@ -472,19 +506,24 @@ export default function CommandCentralClient() {
                       }`}
                     >
                       <div className="relative shrink-0">
-                        <div
-                          className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
-                          style={{ background: a.color }}
-                        >
-                          {a.avatar && (
-                            <img src={a.avatar} alt={a.name} className="w-full h-full object-cover absolute inset-0"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          )}
-                          <span className="text-base font-medium text-white">{a.name[0]}</span>
-                        </div>
+                        <AgentAvatar
+                          agentId={a.id}
+                          name={a.name}
+                          color={a.color}
+                          src={a.avatar}
+                          circleClassName="w-11 h-11 min-w-[44px] min-h-[44px]"
+                          initialClassName="text-base font-medium text-white"
+                        />
                         <span
                           className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
-                          style={{ background: !a.online ? "#555" : (a.id === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }}
+                          style={{
+                            background: !a.online
+                              ? "#555"
+                              : (a.id === "friday" && pendingTaskCount > 0) ||
+                                  (a.id === "tim" && timMessagingTaskCount > 0)
+                                ? "#F59E0B"
+                                : "#1D9E75",
+                          }}
                         />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -523,19 +562,29 @@ export default function CommandCentralClient() {
             </svg>
           </button>
           <div className="relative shrink-0">
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center overflow-hidden${ttsSpeaking && (activeAgent === "suzi" || activeAgent === "tim") ? " animate-pulse" : ""}`}
-              style={{ background: agent.color, boxShadow: ttsSpeaking && (activeAgent === "suzi" || activeAgent === "tim") ? `0 0 12px ${agent.color}` : "none" }}
-            >
-              {agent.avatar && (
-                <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover absolute inset-0"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              )}
-              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
-            </div>
+            <AgentAvatar
+              agentId={agent.id}
+              name={agent.name}
+              color={agent.color}
+              src={agent.avatar}
+              circleClassName={`w-8 h-8 min-w-[32px] min-h-[32px]${ttsSpeaking && (activeAgent === "suzi" || activeAgent === "tim") ? " animate-pulse" : ""}`}
+              style={{
+                boxShadow:
+                  ttsSpeaking && (activeAgent === "suzi" || activeAgent === "tim")
+                    ? `0 0 12px ${agent.color}`
+                    : undefined,
+              }}
+            />
             <span
               className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[var(--bg-primary)]"
-              style={{ background: !agent.online ? "#555" : (activeAgent === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }}
+              style={{
+                background: !agent.online
+                  ? "#555"
+                  : (activeAgent === "friday" && pendingTaskCount > 0) ||
+                      (activeAgent === "tim" && timMessagingTaskCount > 0)
+                    ? "#F59E0B"
+                    : "#1D9E75",
+              }}
             />
           </div>
           <div className="flex-1 min-w-0">
@@ -574,6 +623,7 @@ export default function CommandCentralClient() {
           unreadCounts={unreadCounts}
           pendingTaskCount={pendingTaskCount}
           testingTaskCount={testingTaskCount}
+          timMessagingTaskCount={timMessagingTaskCount}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -666,21 +716,18 @@ export default function CommandCentralClient() {
         {/* Persistent agent header + nav icons */}
         <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
           <div
-            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
-            style={{ background: agent.color }}
+            className="w-[74px] h-[74px] rounded-full overflow-hidden shrink-0 relative group cursor-pointer"
             onClick={() => avatarInputRef.current?.click()}
           >
-            {agent.avatar ? (
-              <img
-                src={agent.avatar}
-                alt={agent.name}
-                className="w-full h-full object-cover absolute inset-0"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
-            ) : (
-              <span className="text-xl font-medium text-white absolute inset-0 flex items-center justify-center">{agent.name[0]}</span>
-            )}
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+            <AgentAvatar
+              agentId={agent.id}
+              name={agent.name}
+              color={agent.color}
+              src={agent.avatar}
+              circleClassName="w-full h-full min-w-0 min-h-0"
+              initialClassName="text-xl font-medium text-white"
+            />
+            <div className="absolute inset-0 z-[3] bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full pointer-events-none">
               {avatarUploading ? (
                 <svg className="w-6 h-6 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" />
@@ -705,7 +752,17 @@ export default function CommandCentralClient() {
               {agent.name}
             </span>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full" style={{ background: !agent.online ? "#555" : (activeAgent === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }} />
+              <span
+                className="w-2 h-2 rounded-full"
+                style={{
+                  background: !agent.online
+                    ? "#555"
+                    : (activeAgent === "friday" && pendingTaskCount > 0) ||
+                        (activeAgent === "tim" && timMessagingTaskCount > 0)
+                      ? "#F59E0B"
+                      : "#1D9E75",
+                }}
+              />
               <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
             </div>
           </div>
@@ -713,40 +770,29 @@ export default function CommandCentralClient() {
           <div className="flex items-center gap-1 ml-6">
             {agentHasKanban(activeAgent) && (
               <button
-                onClick={() => setRightPanel("kanban")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                  rightPanel === "kanban"
-                    ? "text-[var(--accent-green)]"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                type="button"
+                onClick={() =>
+                  setRightPanel(activeAgent === "tim" ? "messages" : "kanban")
+                }
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] relative ${
+                  activeAgent === "tim"
+                    ? rightPanel === "messages" || rightPanel === "kanban"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    : rightPanel === "kanban"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Pipeline board"
+                title={activeAgent === "tim" ? "Message queue & pipeline" : "Pipeline board"}
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="5" height="18" rx="1" />
                   <rect x="10" y="3" width="5" height="12" rx="1" />
                   <rect x="17" y="3" width="5" height="8" rx="1" />
                 </svg>
-              </button>
-            )}
-            {activeAgent === "friday" && (
-              <button
-                onClick={() => setRightPanel("tasks")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] relative ${
-                  rightPanel === "tasks"
-                    ? "text-[var(--accent-green)]"
-                    : pendingTaskCount > 0
-                    ? "text-[#F59E0B]"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-                title={`Human tasks queue${pendingTaskCount > 0 ? ` (${pendingTaskCount})` : ""}`}
-              >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-                {pendingTaskCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#F59E0B] text-[8px] text-black font-bold flex items-center justify-center">
-                    {pendingTaskCount}
+                {activeAgent === "tim" && timMessagingTaskCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-[#F59E0B] text-[8px] text-black font-bold flex items-center justify-center">
+                    {timMessagingTaskCount > 9 ? "9+" : timMessagingTaskCount}
                   </span>
                 )}
               </button>
@@ -759,7 +805,7 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title={activeAgent === "penny" ? "Packages dashboard" : "Friday dashboard"}
+                title={activeAgent === "penny" ? "Packages dashboard" : "Friday packages (active ops)"}
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -790,6 +836,7 @@ export default function CommandCentralClient() {
               </>
             )}
             <button
+              type="button"
               onClick={() => setRightPanel("info")}
               className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                 rightPanel === "info"
@@ -808,12 +855,20 @@ export default function CommandCentralClient() {
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">
-          {rightPanel === "tasks" && activeAgent === "friday" ? (
-            <HumanTasksPanel onSwitchToAgent={(id) => setActiveAgent(id)} packageStageFilter="ACTIVE" />
+          {activeAgent === "tim" && (rightPanel === "messages" || rightPanel === "kanban") ? (
+            <TimAgentPanel
+              tab={rightPanel === "kanban" ? "kanban" : "messages"}
+              onTab={(t) => setRightPanel(t)}
+            />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
-            <FridayDashboardPanel onClose={() => setRightPanel("info")} />
+            <FridayDashboardPanel
+              onClose={() => setRightPanel("info")}
+              onSwitchToAgent={(id) => setActiveAgent(id)}
+              pendingTaskCount={pendingTaskCount}
+              initialWorkTab={paramPanel === "tasks" ? "tasks" : undefined}
+            />
           ) : rightPanel === "dashboard" && activeAgent === "penny" ? (
             <PennyDashboardPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
@@ -828,6 +883,7 @@ export default function CommandCentralClient() {
           agents={agents}
           pendingTaskCount={pendingTaskCount}
           testingTaskCount={testingTaskCount}
+          timMessagingTaskCount={timMessagingTaskCount}
         />
       </div>
 

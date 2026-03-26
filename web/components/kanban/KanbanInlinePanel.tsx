@@ -11,9 +11,18 @@ import { panelBus } from "@/lib/events";
 interface KanbanInlinePanelProps {
   onClose: () => void;
   agentId?: string;
+  /** Tim pipeline: browse-only, no item detail or workflow edits */
+  readOnly?: boolean;
+  /** Inside TimAgentPanel — hide duplicate "Pipeline" title (tab already shows Pipeline) */
+  embeddedInTimTabs?: boolean;
 }
 
-export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePanelProps) {
+export default function KanbanInlinePanel({
+  onClose,
+  agentId,
+  readOnly = false,
+  embeddedInTimTabs = false,
+}: KanbanInlinePanelProps) {
   const [workflowId, setWorkflowId] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("kanban_workflow") || "";
     return "";
@@ -58,6 +67,10 @@ export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePane
     if (workflowId) localStorage.setItem("kanban_workflow", workflowId);
   }, [workflowId, fetchItems]);
 
+  useEffect(() => {
+    if (readOnly) setSelectedItem(null);
+  }, [readOnly]);
+
   // Refresh when agent tools modify CRM data
   useEffect(() => {
     const refetch = () => { if (workflowIdRef.current) fetchItems(workflowIdRef.current); };
@@ -75,27 +88,55 @@ export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePane
     }
   }, []);
 
+  const timStacked = agentId === "tim";
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">Pipeline</span>
+      {timStacked ? (
+        <>
+          {!embeddedInTimTabs && (
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
+              <span className="text-xs font-semibold text-[var(--text-primary)]">Pipeline</span>
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug">
+                View-only — pick a workflow, then scan everyone by stage.
+              </p>
+            </div>
+          )}
+          <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
+            <WorkflowSelector
+              selectedId={workflowId}
+              onSelect={setWorkflowId}
+              onWorkflowLoaded={handleWorkflowLoaded}
+              agentId={agentId}
+              readOnly={readOnly}
+              fullWidth
+            />
+            {loading && (
+              <span className="text-[10px] text-[var(--text-tertiary)] mt-1 block">Loading…</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+          <span className="text-xs font-semibold text-[var(--text-primary)]">Pipeline</span>
 
-        <WorkflowSelector
-          selectedId={workflowId}
-          onSelect={setWorkflowId}
-          onWorkflowLoaded={handleWorkflowLoaded}
-          agentId={agentId}
-        />
+          <WorkflowSelector
+            selectedId={workflowId}
+            onSelect={setWorkflowId}
+            onWorkflowLoaded={handleWorkflowLoaded}
+            agentId={agentId}
+            readOnly={readOnly}
+          />
 
-        {loading && (
-          <span className="text-xs text-[var(--text-tertiary)]">Loading...</span>
-        )}
+          {loading && (
+            <span className="text-xs text-[var(--text-tertiary)]">Loading...</span>
+          )}
 
-        <span className="ml-auto text-xs text-[var(--text-tertiary)] shrink-0">
-          {items.length > 0 && `${items.length} items`}
-        </span>
-      </div>
+          <span className="ml-auto text-xs text-[var(--text-tertiary)] shrink-0">
+            {items.length > 0 && `${items.length} items`}
+          </span>
+        </div>
+      )}
 
       {/* Board */}
       {!workflowId ? (
@@ -112,13 +153,13 @@ export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePane
           transitions={boardTransitions}
           items={items}
           alerts={alerts}
-          selectedItemId={selectedItem?.id ?? null}
-          onSelectItem={setSelectedItem}
+          selectedItemId={readOnly ? null : selectedItem?.id ?? null}
+          onSelectItem={readOnly ? () => {} : setSelectedItem}
         />
       )}
 
       {/* Detail panel */}
-      {selectedItem && (
+      {selectedItem && !readOnly && (
         <ItemDetailPanel
           item={selectedItem}
           onClose={() => setSelectedItem(null)}

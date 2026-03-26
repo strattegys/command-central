@@ -29,12 +29,14 @@ export async function GET(request: NextRequest) {
 
     const rows = await query<WorkflowRow>(
       `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId", w."ownerAgent", w."packageId",
+              p.name AS package_name, p."packageNumber" AS package_number,
               b.id AS board_id, b.name AS board_name, b.description AS board_description,
               b.stages AS board_stages, b.transitions AS board_transitions
        FROM "_workflow" w
        LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+       LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL
        ${whereClause}
-       ORDER BY w.name ASC NULLS LAST
+       ORDER BY p.name ASC NULLS LAST, w.name ASC NULLS LAST
        LIMIT 50`,
       params
     );
@@ -47,6 +49,11 @@ export async function GET(request: NextRequest) {
       boardId: r.boardId,
       ownerAgent: (r as Record<string, unknown>).ownerAgent as string | null,
       packageId: (r as Record<string, unknown>).packageId as string | null,
+      packageName: ((r as Record<string, unknown>).package_name as string | null) ?? null,
+      packageNumber:
+        (r as Record<string, unknown>).package_number != null
+          ? Number((r as Record<string, unknown>).package_number)
+          : null,
       board: r.board_id
         ? ({
             id: r.board_id,

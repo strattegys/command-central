@@ -22,6 +22,12 @@ export interface WorkflowWithBoard {
   itemType: WorkflowItemType;
   boardId: string | null;
   board: Board | null;
+  ownerAgent?: string | null;
+  packageId?: string | null;
+  /** Parent package name for grouped selectors */
+  packageName?: string | null;
+  /** Human-friendly package id for chat (“package #12”) */
+  packageNumber?: number | null;
 }
 
 /** A single item on the kanban board, polymorphic via sourceType */

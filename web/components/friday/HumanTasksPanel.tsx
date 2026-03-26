@@ -3,17 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { panelBus } from "@/lib/events";
+import { getAgentSpec } from "@/lib/agent-registry";
+import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
-
-const AGENT_COLORS: Record<string, string> = {
-  scout: "#2563EB",
-  tim: "#1D9E75",
-  ghost: "#4A90D9",
-  marni: "#D4A017",
-  penny: "#E67E22",
-  friday: "#9B59B6",
-  king: "#5a6d7a",
-};
 
 /** Human-readable action labels for each stage that requires human input */
 const STAGE_ACTION_LABELS: Record<string, string> = {
@@ -54,6 +46,12 @@ interface HumanTask {
   ownerAgent: string;
   /** Package for sim logs — use this directly (workflow-items API has no workflowItemId lookup) */
   packageId: string | null;
+  /** Human-friendly id for chat (“package #12”) */
+  packageNumber?: number | null;
+  /** _package.stage when workflow is linked to a package */
+  packageStage?: string | null;
+  /** True when package exists and stage is ACTIVE */
+  inActiveCampaign?: boolean;
   workflowType: string;
   stage: string;
   stageLabel: string;
@@ -245,7 +243,9 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
 
       {visibleTasks.length > 0 && (
       <div className={`flex-1 overflow-y-auto space-y-2 ${compact ? "px-2 py-2" : "px-3 py-2 pb-3"}`}>
-          {visibleTasks.map((task) => (
+          {visibleTasks.map((task) => {
+            const ownerSpec = getAgentSpec(task.ownerAgent);
+            return (
               <div
                 key={task.itemId}
                 className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[var(--text-tertiary)]/25 transition-colors"
@@ -254,15 +254,28 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                      {task.packageName ? `${task.packageName} — ` : ""}{taskStageHeading(task)}
+                      {task.packageNumber != null && !Number.isNaN(task.packageNumber)
+                        ? `#${task.packageNumber} `
+                        : ""}
+                      {task.packageName ? `${task.packageName} — ` : ""}
+                      {taskStageHeading(task)}
                     </span>
                     <span className="flex items-center gap-1 shrink-0">
-                      <img
-                        src={`/api/agent-avatar?id=${task.ownerAgent}`}
-                        alt={task.ownerAgent}
-                        className="w-4 h-4 rounded-full object-cover"
-                        style={{ border: `1.5px solid ${AGENT_COLORS[task.ownerAgent] || "#888"}` }}
-                      />
+                      <span
+                        className="rounded-full shrink-0"
+                        style={{
+                          padding: "1.5px",
+                          background: ownerSpec.color,
+                        }}
+                      >
+                        <AgentAvatar
+                          agentId={task.ownerAgent}
+                          name={ownerSpec.name}
+                          color={ownerSpec.color}
+                          circleClassName="w-4 h-4 min-w-[16px] min-h-[16px]"
+                          initialClassName="text-[9px] font-semibold text-white leading-none"
+                        />
+                      </span>
                       <span className="text-[10px] text-[var(--text-tertiary)] capitalize">{task.ownerAgent}</span>
                     </span>
                   </div>
@@ -368,7 +381,8 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                 </div>
 
               </div>
-            ))}
+            );
+          })}
       </div>
       )}
 

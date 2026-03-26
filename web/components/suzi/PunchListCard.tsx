@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { PUNCH_LIST_RANK_COLORS } from "@/lib/punch-list-columns";
 
 export interface PunchListNote {
   id: string;
@@ -23,37 +24,24 @@ export interface PunchListItem {
   updatedAt: string;
 }
 
-/** Desaturated rank dots — easier on the eyes (IDE-style accents) */
-const RANK_COLORS: Record<number, string> = {
-  1: "#a67070",
-  2: "#a68970",
-  3: "#a6a066",
-  4: "#7fa67a",
-  5: "#8888a8",
-  6: "#8a9099",
-};
-
 interface PunchListCardProps {
   item: PunchListItem;
+  /** Rendered inside the bordered card, top-right (e.g. drag grip). */
+  dragHandle?: ReactNode;
 }
 
 export default function PunchListCard({
   item,
+  dragHandle,
 }: PunchListCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const rankColor = RANK_COLORS[item.rank] || "#9CA3AF";
+  const rankColor = PUNCH_LIST_RANK_COLORS[item.rank] || "#9CA3AF";
   const isDone = item.status === "done";
   const latestNote = item.notes?.[0];
   const noteCount = item.notes?.length || 0;
 
-  return (
-    <div
-      className={`rounded border px-2.5 py-2 transition-colors ${
-        isDone
-          ? "border-[var(--border-color)] bg-[var(--bg-primary)] opacity-50"
-          : "border-[var(--border-color)] bg-[var(--bg-primary)]"
-      }`}
-    >
+  const body = (
+    <>
       {/* Item number */}
       <span
         className="text-[11px] font-semibold mb-1 inline-block opacity-80"
@@ -116,6 +104,8 @@ export default function PunchListCard({
         )}
         {noteCount > 0 && (
           <button
+            type="button"
+            draggable={false}
             onClick={() => setExpanded(!expanded)}
             className="text-[8px] text-[var(--text-secondary)] hover:text-[var(--accent-green)] underline-offset-2 hover:underline cursor-pointer ml-auto"
           >
@@ -123,6 +113,20 @@ export default function PunchListCard({
           </button>
         )}
       </div>
+    </>
+  );
+
+  return (
+    <div className="rounded border px-2.5 py-2 transition-colors border-[var(--border-color)] bg-[var(--bg-primary)] min-w-0">
+      {dragHandle ? (
+        /* Flex keeps the grip in-flow on the top-right; avoids broken absolute containing blocks */
+        <div className="flex items-start gap-2 min-w-0">
+          <div className={`flex-1 min-w-0 ${isDone ? "opacity-50" : ""}`}>{body}</div>
+          <div className="shrink-0 self-start">{dragHandle}</div>
+        </div>
+      ) : (
+        <div className={isDone ? "opacity-50" : ""}>{body}</div>
+      )}
     </div>
   );
 }

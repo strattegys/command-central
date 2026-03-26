@@ -254,7 +254,7 @@ const tool: ToolModule = {
       }
 
       const rows = await dbQuery(
-        `SELECT p.id, p.name, p."templateId", p.stage, p."customerId", p."customerType", p."createdAt",
+        `SELECT p.id, p.name, p."templateId", p.stage, p."packageNumber", p."customerId", p."customerType", p."createdAt",
                 (SELECT COUNT(*)::text FROM "_workflow" w WHERE w."packageId" = p.id AND w."deletedAt" IS NULL) AS workflow_count
          FROM "_package" p
          WHERE ${conditions.join(" AND ")}
@@ -265,9 +265,10 @@ const tool: ToolModule = {
       if (rows.length === 0) return "No packages found" + (args.arg1 ? ` in ${args.arg1} stage` : "") + ".";
 
       return rows
-        .map((r: Record<string, unknown>) =>
-          `- ${r.name} [${r.stage}] template=${r.templateId} workflows=${r.workflow_count} customer=${r.customerId || "none"} (id: ${r.id})`
-        )
+        .map((r: Record<string, unknown>) => {
+          const num = r.packageNumber != null ? `#${r.packageNumber} ` : "";
+          return `- ${num}${r.name} [${r.stage}] template=${r.templateId} workflows=${r.workflow_count} customer=${r.customerId || "none"} (id: ${r.id})`;
+        })
         .join("\n");
     }
 
@@ -276,7 +277,7 @@ const tool: ToolModule = {
       if (!args.arg1) return "Error: arg1 (packageId) is required";
 
       const pkgRows = await dbQuery(
-        `SELECT id, name, "templateId", stage, spec, "customerId", "customerType", "createdBy", "createdAt"
+        `SELECT id, name, "templateId", stage, spec, "packageNumber", "customerId", "customerType", "createdBy", "createdAt"
          FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
         [args.arg1]
       );
@@ -305,7 +306,9 @@ const tool: ToolModule = {
             .join("\n")
         : "  (no workflows created yet)";
 
-      return `Package: ${pkg.name}\nTemplate: ${pkg.templateId}\nStage: ${pkg.stage}\nCustomer: ${pkg.customerId || "none"} (${pkg.customerType})\nCreated by: ${pkg.createdBy}\n\nDeliverables:\n${deliverables}\n\nWorkflows:\n${workflows}`;
+      const numLine =
+        pkg.packageNumber != null ? `Package #: ${pkg.packageNumber}\n` : "";
+      return `Package: ${pkg.name}\n${numLine}Template: ${pkg.templateId}\nStage: ${pkg.stage}\nCustomer: ${pkg.customerId || "none"} (${pkg.customerType})\nCreated by: ${pkg.createdBy}\n\nDeliverables:\n${deliverables}\n\nWorkflows:\n${workflows}`;
     }
 
     return "Unknown package_manager command. Use: list-templates, create-package, customize-package, submit-for-approval, approve-package, list-packages, get-package";

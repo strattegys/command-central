@@ -3,16 +3,28 @@ import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 
 /**
- * GET /api/crm/human-tasks?packageStage=ACTIVE
+ * GET /api/crm/human-tasks?packageStage=ACTIVE&ownerAgent=tim&messagingOnly=true
  *
- * Returns all workflow items currently sitting at a stage that requires human action.
- * Cross-references workflow items with workflow type templates to find requiresHuman stages.
- *
- * Optional `packageStage` param filters to only tasks from packages at that stage.
- * If not provided, returns all tasks regardless of package stage.
+ * Optional:
+ * - packageStage — filter by _package.stage (e.g. ACTIVE for Friday queue)
+ * - ownerAgent — filter workflows by owner agent (e.g. tim)
+ * - messagingOnly — only tasks whose item stage is messaging-related (DM / reply / connection)
  */
+const MESSAGING_ITEM_STAGES = new Set([
+  "INITIATED",
+  "AWAITING_CONTACT",
+  "MESSAGE_DRAFT",
+  "MESSAGED",
+  "REPLY_DRAFT",
+  "REPLY_SENT",
+]);
+
 export async function GET(req: NextRequest) {
   const packageStageFilter = req.nextUrl.searchParams.get("packageStage");
+  const ownerAgentFilter = req.nextUrl.searchParams.get("ownerAgent")?.trim().toLowerCase() || null;
+  const messagingOnly =
+    req.nextUrl.searchParams.get("messagingOnly") === "true" ||
+    req.nextUrl.searchParams.get("messagingOnly") === "1";
   try {
     // Build a set of all human-required stages per workflow type
     const humanStages = new Map<string, Map<string, { humanAction: string; stageLabel: string }>>();
@@ -26,7 +38,13 @@ export async function GET(req: NextRequest) {
       if (stageMap.size > 0) humanStages.set(typeId, stageMap);
     }
 
-    // Get all active workflows that use these workflow types
+    const workflowStageClause = messagingOnly
+      ? `w.stage::text IN ('ACTIVE', 'PLANNING', 'PAUSED')`
+      : `w.stage::text = 'ACTIVE'`;
+
+    const ownerClause = ownerAgentFilter ? `AND LOWER(w."ownerAgent") = $1` : "";
+    const workflowParams: unknown[] = ownerAgentFilter ? [ownerAgentFilter] : [];
+
     const workflows = await query<{
       id: string;
       name: string;
@@ -38,8 +56,10 @@ export async function GET(req: NextRequest) {
     }>(
       `SELECT w.id, w.name, w."ownerAgent", w."packageId", w.stage, w.spec, w."itemType"
        FROM "_workflow" w
-       WHERE w."deletedAt" IS NULL AND w.stage::text = 'ACTIVE'
-       ORDER BY w."updatedAt" DESC`
+       WHERE w."deletedAt" IS NULL AND ${workflowStageClause}
+       ${ownerClause}
+       ORDER BY w."updatedAt" DESC NULLS LAST`,
+      workflowParams
     );
 
     // For each workflow, find its workflow type by matching against WORKFLOW_TYPES
@@ -48,16 +68,23 @@ export async function GET(req: NextRequest) {
     // Build package name lookup
     const packageNames: Record<string, string> = {};
     const packageStages: Record<string, string> = {};
+    const packageNumbers: Record<string, number | null> = {};
     const pkgIds = [...new Set(workflows.map(w => w.packageId).filter(Boolean))] as string[];
     if (pkgIds.length > 0) {
       const pkgPlaceholders = pkgIds.map((_, i) => `$${i + 1}`).join(", ");
-      const pkgs = await query<{ id: string; name: string; stage: string }>(
-        `SELECT id, name, stage FROM "_package" WHERE id IN (${pkgPlaceholders}) AND "deletedAt" IS NULL`,
+      const pkgs = await query<{ id: string; name: string; stage: string; packageNumber: number | null }>(
+        `SELECT id, name, stage, "packageNumber" FROM "_package" WHERE id IN (${pkgPlaceholders}) AND "deletedAt" IS NULL`,
         pkgIds
       );
       for (const p of pkgs) {
         packageNames[p.id] = p.name;
         packageStages[p.id] = (p.stage || "").toUpperCase();
+        packageNumbers[p.id] =
+          p.packageNumber != null && typeof p.packageNumber === "number"
+            ? p.packageNumber
+            : p.packageNumber != null
+              ? parseInt(String(p.packageNumber), 10)
+              : null;
       }
     }
 
@@ -75,6 +102,9 @@ export async function GET(req: NextRequest) {
       packageName: string;
       ownerAgent: string;
       packageId: string | null;
+      packageNumber: number | null;
+      packageStage: string | null;
+      inActiveCampaign: boolean;
       workflowType: string;
       stage: string;
       stageLabel: string;
@@ -100,8 +130,11 @@ export async function GET(req: NextRequest) {
       const stageMap = humanStages.get(matchedType);
       if (!stageMap) continue;
 
-      // Get all human-stage keys for this workflow type
-      const humanStageKeys = Array.from(stageMap.keys());
+      // Get all human-stage keys for this workflow type (optionally only messaging stages)
+      let humanStageKeys = Array.from(stageMap.keys());
+      if (messagingOnly) {
+        humanStageKeys = humanStageKeys.filter((k) => MESSAGING_ITEM_STAGES.has(k));
+      }
       if (humanStageKeys.length === 0) continue;
 
       // Query items in human-required stages for this workflow
@@ -161,6 +194,13 @@ export async function GET(req: NextRequest) {
           }
         }
 
+        const pkgStage = wf.packageId ? packageStages[wf.packageId] || null : null;
+        const inActiveCampaign = Boolean(wf.packageId && pkgStage === "ACTIVE");
+        const pkgNum =
+          wf.packageId && packageNumbers[wf.packageId] != null && !Number.isNaN(packageNumbers[wf.packageId] as number)
+            ? packageNumbers[wf.packageId]
+            : null;
+
         tasks.push({
           itemId: item.id,
           itemTitle: title,
@@ -170,6 +210,9 @@ export async function GET(req: NextRequest) {
           packageName: wf.packageId ? (packageNames[wf.packageId] || "") : "",
           ownerAgent: wf.ownerAgent,
           packageId: wf.packageId,
+          packageNumber: pkgNum,
+          packageStage: pkgStage,
+          inActiveCampaign,
           workflowType: workflowTypeId,
           stage: item.stage,
           stageLabel: stageInfo.stageLabel,

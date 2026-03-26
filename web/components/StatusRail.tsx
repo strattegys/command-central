@@ -40,6 +40,7 @@ interface StatusRailProps {
   agents: AgentConfig[];
   pendingTaskCount: number;
   testingTaskCount: number;
+  timMessagingTaskCount?: number;
 }
 
 function formatAlertTime(ts: string) {
@@ -65,7 +66,12 @@ function noticeSeverityClass(sev: SystemNotice["severity"]) {
   return "border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]";
 }
 
-export default function StatusRail({ agents, pendingTaskCount, testingTaskCount }: StatusRailProps) {
+export default function StatusRail({
+  agents,
+  pendingTaskCount,
+  testingTaskCount,
+  timMessagingTaskCount = 0,
+}: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
@@ -159,12 +165,13 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
             {teamAgents.map((a) => {
               const warnFriday = a.id === "friday" && pendingTaskCount > 0;
               const warnPenny = a.id === "penny" && testingTaskCount > 0;
+              const warnTim = a.id === "tim" && timMessagingTaskCount > 0;
               return (
                 <li key={a.id} className="flex items-center gap-1.5 min-w-0">
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                      background: !a.online ? "#555" : warnFriday || warnPenny ? "#F59E0B" : "#1D9E75",
+                      background: !a.online ? "#555" : warnFriday || warnPenny || warnTim ? "#F59E0B" : "#1D9E75",
                     }}
                   />
                   <span className="truncate text-[var(--text-secondary)]">{a.name}</span>
@@ -176,6 +183,11 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
                   {warnPenny && (
                     <span className="text-[#F59E0B] shrink-0" title="Pending approval">
                       {testingTaskCount}
+                    </span>
+                  )}
+                  {warnTim && (
+                    <span className="text-[#F59E0B] shrink-0" title="Tim message queue">
+                      {timMessagingTaskCount}
                     </span>
                   )}
                 </li>

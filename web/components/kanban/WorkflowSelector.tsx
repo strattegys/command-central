@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { WorkflowWithBoard, WorkflowItemType } from "@/lib/board-types";
 
 const STAGES = ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"] as const;
@@ -22,9 +22,22 @@ interface WorkflowSelectorProps {
   onSelect: (id: string) => void;
   onWorkflowLoaded?: (workflow: WorkflowWithBoard | null) => void;
   agentId?: string;
+  /** No workflow stage edits or details popup actions */
+  readOnly?: boolean;
+  /** Full-width select (e.g. Tim pipeline row below title) */
+  fullWidth?: boolean;
+  className?: string;
 }
 
-export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoaded, agentId }: WorkflowSelectorProps) {
+export default function WorkflowSelector({
+  selectedId,
+  onSelect,
+  onWorkflowLoaded,
+  agentId,
+  readOnly = false,
+  fullWidth = false,
+  className = "",
+}: WorkflowSelectorProps) {
   const [workflows, setWorkflows] = useState<WorkflowWithBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPopup, setShowPopup] = useState(false);
@@ -41,6 +54,25 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
       .catch(() => setWorkflows([]))
       .finally(() => setLoading(false));
   }, [agentId]);
+
+  const timPackageGroups = useMemo(() => {
+    if (agentId !== "tim") return null;
+    const m = new Map<string, WorkflowWithBoard[]>();
+    for (const w of workflows) {
+      const label =
+        w.packageNumber != null && !Number.isNaN(w.packageNumber)
+          ? `#${w.packageNumber} ${(w.packageName && w.packageName.trim()) || "Package"}`
+          : (w.packageName && w.packageName.trim()) ||
+            (w.packageId ? `Package ${w.packageId.slice(0, 8)}…` : "No package");
+      if (!m.has(label)) m.set(label, []);
+      m.get(label)!.push(w);
+    }
+    return [...m.entries()].sort(([a], [b]) => {
+      if (a === "No package") return -1;
+      if (b === "No package") return 1;
+      return a.localeCompare(b);
+    });
+  }, [agentId, workflows]);
 
   // Close popup on outside click
   useEffect(() => {
@@ -62,7 +94,7 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
   }, [selected, onWorkflowLoaded]);
 
   const handleStageChange = async (newStage: string) => {
-    if (!selected || saving) return;
+    if (readOnly || !selected || saving) return;
     setSaving(true);
     try {
       const res = await fetch("/api/crm/workflows", {
@@ -81,26 +113,39 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
   };
 
   return (
-    <div className="flex items-center gap-1.5 relative">
+    <div className={`flex items-center gap-1.5 relative ${fullWidth ? "w-full" : ""} ${className}`.trim()}>
       <select
         value={selectedId}
         onChange={(e) => onSelect(e.target.value)}
         disabled={loading}
-        className="bg-[var(--bg-input)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-1.5 border border-[var(--border-color)] outline-none cursor-pointer min-w-[200px]"
+        className={`bg-[var(--bg-input)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-1.5 border border-[var(--border-color)] outline-none cursor-pointer ${
+          fullWidth ? "w-full min-w-0 max-w-full" : "min-w-[200px]"
+        }`}
       >
         <option value="">{loading ? "Loading workflows..." : "Select a workflow"}</option>
-        {workflows.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name} ({w.stage})
-          </option>
-        ))}
+        {agentId === "tim" && timPackageGroups
+          ? timPackageGroups.map(([label, list]) => (
+              <optgroup key={label} label={label}>
+                {list.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.stage})
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          : workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name} ({w.stage})
+              </option>
+            ))}
       </select>
 
       {/* Info button */}
-      {selected && (
+      {selected && !readOnly && (
         <button
+          type="button"
           onClick={() => setShowPopup(!showPopup)}
-          className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] cursor-pointer"
+          className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] cursor-pointer shrink-0"
           title="Workflow details"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -119,11 +164,22 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">{selected.name}</h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-primary)] text-[var(--text-tertiary)] font-medium">
-                {ITEM_TYPE_LABELS[selected.itemType] || selected.itemType}
-              </span>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)] truncate">{selected.name}</h2>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-primary)] text-[var(--text-tertiary)] font-medium shrink-0">
+                  {ITEM_TYPE_LABELS[selected.itemType] || selected.itemType}
+                </span>
+              </div>
+              {(selected.packageName || selected.packageId || selected.packageNumber != null) && (
+                <span className="text-[10px] text-[var(--text-tertiary)] truncate">
+                  Package
+                  {selected.packageNumber != null && !Number.isNaN(selected.packageNumber)
+                    ? ` #${selected.packageNumber}`
+                    : ""}
+                  : {selected.packageName?.trim() || selected.packageId || "—"}
+                </span>
+              )}
             </div>
             <button
               onClick={() => setShowPopup(false)}
@@ -145,8 +201,9 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
               {STAGES.map((s) => (
                 <button
                   key={s}
+                  type="button"
                   onClick={() => handleStageChange(s)}
-                  disabled={saving}
+                  disabled={saving || readOnly}
                   className={`text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${
                     selected.stage === s
                       ? "border-transparent text-white font-medium"

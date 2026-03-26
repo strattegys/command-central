@@ -6,7 +6,14 @@ import {
   archiveDoneItems,
   addNote,
 } from "../punch-list";
+import {
+  parsePunchListRank,
+  punchListColumnLabel,
+  punchListColumnsSummary,
+} from "../punch-list-columns";
 import type { ToolModule } from "./types";
+
+const RANK_HELP = `Column (rank 1–6): ${punchListColumnsSummary()}. You may pass a number or a name like "later", "next", "some time", "backlog", "idea".`;
 
 const tool: ToolModule = {
   metadata: {
@@ -21,8 +28,7 @@ const tool: ToolModule = {
 
   declaration: {
     name: "punch_list",
-    description:
-      "Manage the punch list of app fixes and improvements. Commands: 'list' (all open items with their persistent ID numbers), 'add' (new item — ALWAYS ask user for rank 1-8 and category), 'update' (modify by item number or id), 'done' (mark complete), 'reopen' (mark open again), 'archive' (archive a single item), 'archive_done' (archive all completed items), 'note' (add a note to an item). Each item has a persistent numeric ID (e.g. 1001, 1002) that never changes. Rank 1-8 where 1 = highest priority. Category is a short tag like 'ui', 'bug', 'feature', 'agent', etc.",
+    description: `Manage the punch list (Kanban columns, not a single priority number). Commands: 'list', 'add' (requires column + category — see Suzi's instructions), 'update', 'done', 'reopen', 'archive', 'archive_done', 'note'. ${RANK_HELP} Category is a short tag; match existing tags when possible.`,
     parameters: {
       type: "object" as const,
       properties: {
@@ -40,11 +46,12 @@ const tool: ToolModule = {
         },
         rank: {
           type: "string",
-          description: "Priority 1-8, 1 = highest (for add/update). ALWAYS ask the user for this.",
+          description: `Kanban column: 1–6 or name (Now, Later, Next, Some time, Backlog, Idea). ${RANK_HELP}`,
         },
         category: {
           type: "string",
-          description: "Short tag/category like 'ui', 'bug', 'feature', 'agent', 'content', 'infra' (for add/update). ALWAYS ask the user for this.",
+          description:
+            "Required for add. Short tag (e.g. ui, bug, feature). Prefer matching an existing category from the punch list UI when the user's words map clearly; otherwise ask.",
         },
         item_number: {
           type: "string",
@@ -75,7 +82,8 @@ const tool: ToolModule = {
         .map(
           (item) => {
             const latestNote = item.notes?.[0];
-            let line = `#${item.itemNumber} [R${item.rank}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
+            const col = punchListColumnLabel(item.rank);
+            let line = `#${item.itemNumber} [${col}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
             if (item.description) line += ` — ${item.description}`;
             if (latestNote) line += `\n   Latest note: "${latestNote.content}"`;
             line += ` (id: ${item.id})`;
@@ -87,17 +95,23 @@ const tool: ToolModule = {
 
     if (cmd === "add") {
       if (!args.title) return "Error: title is required";
-      if (!args.rank) return "Error: Please ask the user what rank (1-8) this item should have.";
-      if (!args.category) return "Error: Please ask the user what category tag this item should have (e.g. ui, bug, feature, agent, content, infra).";
-      const rank = parseInt(args.rank);
-      if (rank < 1 || rank > 8) return "Error: rank must be 1-8";
+      if (!args.rank) {
+        return `Error: Ask which column this belongs in (${punchListColumnsSummary()}).`;
+      }
+      if (!args.category) {
+        return "Error: Every punch list item needs a category tag. Infer from context or ask.";
+      }
+      const rank = parsePunchListRank(String(args.rank));
+      if (rank === null) {
+        return `Error: Invalid column "${args.rank}". Use ${RANK_HELP}`;
+      }
       const item = await addPunchListItem(agentId, {
         title: args.title,
         description: args.description,
         rank,
         category: args.category,
       });
-      return `Punch list item created: #${item.itemNumber} "${item.title}" [rank ${item.rank}] [${item.category}] (id: ${item.id})`;
+      return `Punch list item created: #${item.itemNumber} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}] (id: ${item.id})`;
     }
 
     // Resolve item number to ID
@@ -120,8 +134,8 @@ const tool: ToolModule = {
       if (args.description) updates.description = args.description;
       if (args.category) updates.category = args.category;
       if (args.rank) {
-        const r = parseInt(args.rank);
-        if (r < 1 || r > 8) return "Error: rank must be 1-8";
+        const r = parsePunchListRank(String(args.rank));
+        if (r === null) return `Error: Invalid column "${args.rank}". ${RANK_HELP}`;
         updates.rank = r;
       }
       await updatePunchListItem(resolvedId, updates);

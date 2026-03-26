@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import PunchListCard, { type PunchListItem } from "./PunchListCard";
 import { panelBus } from "@/lib/events";
+import {
+  PUNCH_LIST_RANK_COLORS,
+  PUNCH_LIST_RANK_LABELS,
+} from "@/lib/punch-list-columns";
 
 const STATUS_FILTERS = ["All", "Open", "Done"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -11,24 +15,6 @@ const FILTER_TO_STATUS: Record<string, "open" | "done" | undefined> = {
   All: undefined,
   Open: "open",
   Done: "done",
-};
-
-const RANK_LABELS: Record<number, string> = {
-  1: "NOW",
-  2: "LATER",
-  3: "NEXT",
-  4: "SOMETIME",
-  5: "BACKLOG",
-  6: "IDEA",
-};
-
-const RANK_COLORS: Record<number, string> = {
-  1: "#a67070",
-  2: "#a68970",
-  3: "#a6a066",
-  4: "#7fa67a",
-  5: "#8888a8",
-  6: "#8a9099",
 };
 
 interface SuziPunchListPanelProps {
@@ -363,8 +349,8 @@ export default function SuziPunchListPanel({
           <div className="flex gap-2 p-2 h-full">
             {sortedRanks.map((rank) => {
               const rankItems = rankGroups.get(rank) || [];
-              const color = RANK_COLORS[rank] || "#9CA3AF";
-              const label = RANK_LABELS[rank] || `Rank ${rank}`;
+              const color = PUNCH_LIST_RANK_COLORS[rank] || "#9CA3AF";
+              const label = PUNCH_LIST_RANK_LABELS[rank] || `Column ${rank}`;
               const isDropTarget = dropTargetRank === rank;
               return (
                 <div
@@ -404,33 +390,31 @@ export default function SuziPunchListPanel({
                         )}
                         <div
                           data-punch-id={item.id}
-                          draggable
-                          onDragStart={(e) => {
-                            // Only allow drag from the handle
-                            const target = e.target as HTMLElement;
-                            if (!target.closest("[data-drag-handle]")) {
-                              e.preventDefault();
-                              return;
-                            }
-                            handleDragStart(e, item);
-                          }}
-                          onDragEnd={handleDragEnd}
-                          className={`relative transition-opacity ${
+                          className={`transition-opacity ${
                             dragItemId === item.id ? "opacity-30" : ""
                           }`}
                         >
-                          {/* Drag handle */}
-                          <div
-                            data-drag-handle
-                            className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                          >
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                              <circle cx="3" cy="2" r="1" /><circle cx="7" cy="2" r="1" />
-                              <circle cx="3" cy="5" r="1" /><circle cx="7" cy="5" r="1" />
-                              <circle cx="3" cy="8" r="1" /><circle cx="7" cy="8" r="1" />
-                            </svg>
-                          </div>
-                          <PunchListCard item={item} />
+                          <PunchListCard
+                            item={item}
+                            dragHandle={
+                              <div
+                                draggable
+                                data-drag-handle
+                                title="Drag to move or reorder"
+                                onDragStart={(e) => handleDragStart(e, item)}
+                                onDragEnd={handleDragEnd}
+                                className="w-7 h-7 flex items-center justify-center rounded-md cursor-grab active:cursor-grabbing bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] shadow-sm hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                                role="button"
+                                aria-label="Drag to reorder or move column"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden>
+                                  <circle cx="3" cy="2" r="1" /><circle cx="7" cy="2" r="1" />
+                                  <circle cx="3" cy="5" r="1" /><circle cx="7" cy="5" r="1" />
+                                  <circle cx="3" cy="8" r="1" /><circle cx="7" cy="8" r="1" />
+                                </svg>
+                              </div>
+                            }
+                          />
                         </div>
                       </div>
                     ))}

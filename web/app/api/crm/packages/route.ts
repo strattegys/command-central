@@ -1,23 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { DEFAULT_WARM_OUTREACH_DISCOVERY } from "@/lib/warm-outreach-discovery";
 
 /**
  * Packages API — CRUD for service packages.
  *
- * GET  ?stage=&customerId= — List packages with workflow count
+ * GET  ?stage=&customerId=&operational=true&includeStats=true
+ *      operational=true → stage IN (ACTIVE, PAUSED, COMPLETED) for Friday ops board
+ *      includeStats=true → total workflow items across package workflows
  * POST {templateId, name, customerId?, customerType?, spec?} — Create package
  * PATCH {id, stage?, spec?, name?} — Update package
  */
+
+function isMissingPackageNumberColumn(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /packageNumber/i.test(msg) && (/does not exist/i.test(msg) || /column/i.test(msg));
+}
 
 export async function GET(req: NextRequest) {
   try {
     const stage = req.nextUrl.searchParams.get("stage");
     const customerId = req.nextUrl.searchParams.get("customerId");
+    const operational =
+      req.nextUrl.searchParams.get("operational") === "true" ||
+      req.nextUrl.searchParams.get("operational") === "1";
+    const includeStats =
+      req.nextUrl.searchParams.get("includeStats") === "true" ||
+      req.nextUrl.searchParams.get("includeStats") === "1";
 
     const params: unknown[] = [];
     const conditions: string[] = ['p."deletedAt" IS NULL'];
 
-    if (stage) {
+    if (operational) {
+      conditions.push(`UPPER(p.stage::text) IN ('ACTIVE', 'PAUSED', 'COMPLETED')`);
+    } else if (stage) {
       params.push(stage.toUpperCase());
       conditions.push(`p.stage = $${params.length}`);
     }
@@ -26,17 +42,36 @@ export async function GET(req: NextRequest) {
       conditions.push(`p."customerId" = $${params.length}`);
     }
 
-    const rows = await query(
+    const itemCountSelect = includeStats
+      ? `, (SELECT COUNT(*)::int FROM "_workflow_item" wi
+          INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+          WHERE w."packageId" = p.id AND wi."deletedAt" IS NULL) AS "itemCount"`
+      : "";
+
+    const buildSql = (includePackageNumber: boolean) =>
       `SELECT p.id, p.name, p."templateId", p.stage, p.spec,
+              ${includePackageNumber ? 'p."packageNumber",' : ""}
               p."customerId", p."customerType", p."createdBy", p."createdAt",
               (SELECT COUNT(*)::int FROM "_workflow" w
                WHERE w."packageId" = p.id AND w."deletedAt" IS NULL) AS "workflowCount"
+              ${itemCountSelect}
        FROM "_package" p
        WHERE ${conditions.join(" AND ")}
-       ORDER BY p."createdAt" DESC
-       LIMIT 100`,
-      params
-    );
+       ORDER BY p."updatedAt" DESC NULLS LAST, p."createdAt" DESC
+       LIMIT 100`;
+
+    let rows: Record<string, unknown>[];
+    try {
+      rows = (await query(buildSql(true), params)) as Record<string, unknown>[];
+    } catch (error) {
+      if (isMissingPackageNumberColumn(error)) {
+        console.warn("[packages] GET: packageNumber column missing — retrying without it (run migrate-package-number.sql)");
+        rows = (await query(buildSql(false), params)) as Record<string, unknown>[];
+        rows = rows.map((r) => ({ ...r, packageNumber: null }));
+      } else {
+        throw error;
+      }
+    }
 
     return NextResponse.json({ packages: rows });
   } catch (error) {
@@ -89,15 +124,37 @@ export async function POST(req: NextRequest) {
         );
         pkgSpec = { ...pkgSpec, brief: TIM_WARM_OUTREACH_PACKAGE_BRIEF };
       }
+      const existingCadence =
+        pkgSpec.warmOutreachDiscovery && typeof pkgSpec.warmOutreachDiscovery === "object"
+          ? (pkgSpec.warmOutreachDiscovery as Record<string, unknown>)
+          : {};
+      pkgSpec = {
+        ...pkgSpec,
+        warmOutreachDiscovery: { ...DEFAULT_WARM_OUTREACH_DISCOVERY, ...existingCadence },
+      };
     }
 
-    const rows = await query(
-      `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5::jsonb, 'DRAFT', 'penny', NOW(), NOW()) RETURNING id`,
-      [templateId, name, customerId || null, customerType || "person", JSON.stringify(pkgSpec)]
-    );
+    let rows: Record<string, unknown>[];
+    try {
+      rows = (await query(
+        `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5::jsonb, 'DRAFT', 'penny', NOW(), NOW()) RETURNING id, "packageNumber"`,
+        [templateId, name, customerId || null, customerType || "person", JSON.stringify(pkgSpec)]
+      )) as Record<string, unknown>[];
+    } catch (error) {
+      if (isMissingPackageNumberColumn(error)) {
+        rows = (await query(
+          `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5::jsonb, 'DRAFT', 'penny', NOW(), NOW()) RETURNING id`,
+          [templateId, name, customerId || null, customerType || "person", JSON.stringify(pkgSpec)]
+        )) as Record<string, unknown>[];
+      } else {
+        throw error;
+      }
+    }
 
-    return NextResponse.json({ id: (rows[0] as Record<string, unknown>).id });
+    const row0 = rows[0] as Record<string, unknown>;
+    return NextResponse.json({ id: row0.id, packageNumber: row0.packageNumber ?? null });
   } catch (error) {
     console.error("[packages] POST error:", error);
     return NextResponse.json(
@@ -120,7 +177,7 @@ export async function PATCH(req: NextRequest) {
     const params: unknown[] = [];
 
     if (stage) {
-      const validStages = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "ACTIVE", "COMPLETED"];
+      const validStages = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "ACTIVE", "PAUSED", "COMPLETED"];
       if (!validStages.includes(stage.toUpperCase())) {
         return NextResponse.json(
           { error: `stage must be one of: ${validStages.join(", ")}` },

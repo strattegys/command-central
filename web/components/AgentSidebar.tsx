@@ -2,6 +2,8 @@
 
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
+import { getAppBrandTitle } from "@/lib/app-brand";
+import AgentAvatar from "./AgentAvatar";
 import NotificationBell from "./NotificationBell";
 
 const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
@@ -13,6 +15,7 @@ interface AgentSidebarProps {
   unreadCounts?: Record<string, number>;
   pendingTaskCount?: number;
   testingTaskCount?: number;
+  timMessagingTaskCount?: number;
 }
 
 export default function AgentSidebar({
@@ -22,12 +25,19 @@ export default function AgentSidebar({
   unreadCounts = {},
   pendingTaskCount = 0,
   testingTaskCount = 0,
+  timMessagingTaskCount = 0,
 }: AgentSidebarProps) {
+  const appTitle = getAppBrandTitle();
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="h-11 shrink-0 px-4 text-sm font-medium border-b border-[var(--border-color)] flex items-center gap-1">
-        <span className="text-sm font-medium text-[var(--text-primary)]">Agents</span>
-        <div className="ml-auto">
+      <div className="h-11 shrink-0 px-3 border-b border-[var(--border-color)] flex items-center gap-2 min-w-0">
+        <span
+          className="text-xs font-semibold text-[var(--text-primary)] leading-tight truncate min-w-0"
+          title={appTitle}
+        >
+          {appTitle}
+        </span>
+        <div className="ml-auto shrink-0">
           <NotificationBell />
         </div>
       </div>
@@ -53,22 +63,12 @@ export default function AgentSidebar({
                     }`}
                   >
                     <div className="relative shrink-0">
-                      <div
-                        className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center overflow-hidden"
-                        style={{ background: agent.color }}
-                      >
-                        {agent.avatar && (
-                          <img
-                            src={agent.avatar}
-                            alt={agent.name}
-                            className="w-full h-full object-cover absolute inset-0"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                        )}
-                        <span className="text-sm font-medium text-white">
-                          {agent.name[0]}
-                        </span>
-                      </div>
+                      <AgentAvatar
+                        agentId={agent.id}
+                        name={agent.name}
+                        color={agent.color}
+                        src={agent.avatar}
+                      />
                       {unread > 0 && (
                         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-orange)] text-white text-[10px] font-bold flex items-center justify-center px-1">
                           {unread > 99 ? "99+" : unread}
@@ -83,7 +83,13 @@ export default function AgentSidebar({
                         <span
                           className="w-2 h-2 rounded-full shrink-0"
                           style={{
-                            background: !agent.online ? "#555" : (agent.id === "friday" && pendingTaskCount > 0) ? "#F59E0B" : (agent.id === "penny" && testingTaskCount > 0) ? "#F59E0B" : "#1D9E75",
+                            background: !agent.online
+                              ? "#555"
+                              : (agent.id === "friday" && pendingTaskCount > 0) ||
+                                  (agent.id === "penny" && testingTaskCount > 0) ||
+                                  (agent.id === "tim" && timMessagingTaskCount > 0)
+                                ? "#F59E0B"
+                                : "#1D9E75",
                           }}
                         />
                       </div>

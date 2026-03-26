@@ -149,6 +149,15 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
           "Polls for new LinkedIn connections, enriches CRM contacts",
         handler: "linkedin-connections",
       },
+      {
+        id: "warm-outreach-discovery",
+        name: "Warm outreach — LinkedIn discovery slots",
+        schedule: "*/30 * * * *",
+        timeZone: "America/Los_Angeles",
+        description:
+          "Pacific time: every :00 and :30; only adds slots 8:30–16:30 PT. Active warm-outreach: up to N/day (~1h apart); pauses when backlog high",
+        handler: "warm-outreach-discovery",
+      },
     ],
     heartbeat: {
       type: "full",
@@ -176,6 +185,12 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
           name: "Workflow Health",
           description: "Checks for empty or inactive workflows in CRM",
           priority: "low",
+        },
+        {
+          name: "Warm outreach backlog",
+          description:
+            "Nags when many find-contact (LinkedIn) tasks pile up for an active warm-outreach package",
+          priority: "high",
         },
       ],
     },
@@ -253,12 +268,12 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     memoryDir: R("/root/.fridaybot/memory"),
     tools: ["workflow_manager", "web_search", "memory"],
     capabilities: [
-      "Manage workflows",
+      "Monitor packages",
       "Web search",
       "Tool registry",
     ],
     connections: [
-      { label: "Workflows", connected: true, toolId: "workflow_manager" },
+      { label: "Packages", connected: true, toolId: "workflow_manager" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
     routines: [],

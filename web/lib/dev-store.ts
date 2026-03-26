@@ -213,6 +213,11 @@ function insertInto(table: string, sql: string, params: unknown[]): Row[] {
   if (!row.createdAt) row.createdAt = now();
   if (!row.updatedAt) row.updatedAt = now();
 
+  if (table === "packages" && (row.packageNumber == null || row.packageNumber === "")) {
+    const max = rows.reduce((m, r) => Math.max(m, Number(r.packageNumber) || 0), 0);
+    row.packageNumber = max + 1;
+  }
+
   rows.push(row);
   saveTable(table, rows);
 
@@ -221,25 +226,68 @@ function insertInto(table: string, sql: string, params: unknown[]): Row[] {
 
 // ─── SELECT packages ────────────────────────────────────────────
 
+/** Outer WHERE on `_package` p — avoids mistaking subquery WHERE for the main filter. */
+function extractOuterWhereForPackageSelect(sql: string): string {
+  const s = sql.replace(/\s+/g, " ").trim();
+  const m = s.match(
+    /FROM\s+"_package"\s+p\s+WHERE\s+(.+?)(?:\s+ORDER\s+BY\b|\s+LIMIT\b|$)/i
+  );
+  return m ? m[1].trim() : "";
+}
+
 function selectPackages(sql: string, params: unknown[]): Row[] {
   const rows = loadTable("packages").filter((r) => !r.deletedAt);
   const workflows = loadTable("workflows").filter((r) => !r.deletedAt);
+  const workflowItems = loadTable("workflow_items").filter((r) => !r.deletedAt);
 
-  // Build conditions from WHERE clause params
-  const conditions = extractConditions(sql, params);
+  const outerWhere = extractOuterWhereForPackageSelect(sql);
+  const operational =
+    outerWhere.includes("'PAUSED'") &&
+    outerWhere.includes("'COMPLETED'") &&
+    outerWhere.includes("'ACTIVE'") &&
+    /stage/i.test(outerWhere);
+
+  // Strip UPPER(p.stage::text) IN (...) so extractConditions does not mis-parse `::text` as column "text" IN (...)
+  let frag = outerWhere;
+  if (operational) {
+    frag = frag
+      .replace(/\s+AND\s+UPPER\s*\(\s*p\.stage::text\s*\)\s+IN\s*\([^)]+\)/gi, "")
+      .replace(/^\s*UPPER\s*\(\s*p\.stage::text\s*\)\s+IN\s*\([^)]+\)\s+AND\s+/i, "")
+      .replace(/^\s*UPPER\s*\(\s*p\.stage::text\s*\)\s+IN\s*\([^)]+\)\s*$/i, "");
+  }
+
+  const conditions = extractConditions("WHERE " + frag, params);
   let filtered = rows.filter((r) => matchesConditions(r, conditions));
 
-  // Add workflow count
-  filtered = filtered.map((r) => ({
-    ...r,
-    workflowCount: workflows.filter((w) => w.packageId === r.id && !w.deletedAt).length,
-    workflow_count: String(workflows.filter((w) => w.packageId === r.id && !w.deletedAt).length),
-  }));
+  if (operational) {
+    filtered = filtered.filter((r) => {
+      const st = String(r.stage || "").toUpperCase();
+      return st === "ACTIVE" || st === "PAUSED" || st === "COMPLETED";
+    });
+  }
 
-  // Sort by createdAt DESC
-  filtered.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const withCounts = filtered.map((r) => {
+    const wfCount = workflows.filter((w) => w.packageId === r.id).length;
+    const base: Row = {
+      ...r,
+      workflowCount: wfCount,
+      workflow_count: String(wfCount),
+    };
+    if (sql.includes("_workflow_item")) {
+      const itemCount = workflowItems.filter((i) => {
+        const w = workflows.find((wf) => wf.id === i.workflowId);
+        return w && w.packageId === r.id;
+      }).length;
+      base.itemCount = itemCount;
+    }
+    return base;
+  });
 
-  return filtered.slice(0, 100);
+  withCounts.sort((a, b) =>
+    String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""))
+  );
+
+  return withCounts.slice(0, 100);
 }
 
 // ─── SELECT workflows ───────────────────────────────────────────
@@ -258,8 +306,24 @@ function selectWorkflows(sql: string, params: unknown[]): Row[] {
     }));
   }
 
-  filtered.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  return filtered.slice(0, 50);
+  if (sql.includes('"_package"') || sql.includes("package_name")) {
+    const pkgs = loadTable("packages").filter((r) => !r.deletedAt);
+    filtered = filtered.map((r) => {
+      const p = pkgs.find((pkg) => pkg.id === r.packageId);
+      return { ...r, package_name: p?.name ?? null };
+    });
+    filtered.sort((a, b) => {
+      const an = String(a.package_name || "");
+      const bn = String(b.package_name || "");
+      if (an !== bn) return an.localeCompare(bn);
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  } else {
+    filtered.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  }
+
+  const orphanList = /packageId/i.test(sql) && /IS\s+NULL/i.test(sql);
+  return filtered.slice(0, orphanList ? 500 : 50);
 }
 
 // ─── SELECT workflow items ──────────────────────────────────────
@@ -434,9 +498,23 @@ function extractConditions(sql: string, params: unknown[]): Array<{ col: string;
       // Literal string IN: column IN ('A', 'B', 'C')
       const litVals = inner.match(/'([^']+)'/g);
       if (litVals) {
-        const vals = litVals.map(v => v.slice(1, -1));
+        const vals = litVals.map((v) => v.slice(1, -1));
         conditions.push({ col, val: vals });
       }
+    }
+  }
+
+  // Match: "packageId" IS NULL or deletedAt IS NULL (param-free predicates)
+  const quotedNull = /"(\w+)"\s+IS\s+NULL/gi;
+  while ((match = quotedNull.exec(whereSection)) !== null) {
+    conditions.push({ col: match[1], val: null });
+  }
+  const bareNull = /(?:^|\s)(\w+)\s+IS\s+NULL/gi;
+  while ((match = bareNull.exec(whereSection)) !== null) {
+    const col = match[1];
+    const up = col.toUpperCase();
+    if (up !== "AND" && up !== "OR" && up !== "NOT" && up !== "WHERE" && up !== "IS") {
+      conditions.push({ col, val: null });
     }
   }
 

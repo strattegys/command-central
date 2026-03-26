@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
+import FridayPackageCard, { type FridayPackageRow } from "./FridayPackageCard";
+import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
 import { panelBus } from "@/lib/events";
 
 const COLUMNS = [
-  { key: "PLANNING", label: "Planning", color: "#6b8a9e" },
   { key: "ACTIVE", label: "Active", color: "#1D9E75" },
   { key: "PAUSED", label: "Paused", color: "#D85A30" },
   { key: "COMPLETED", label: "Completed", color: "#22c55e" },
@@ -14,39 +14,81 @@ const COLUMNS = [
 
 const POLL_INTERVAL = 5000;
 
-type Tab = "workflows" | "tools";
+type Tab = "packages" | "tasks" | "tools";
 
 interface FridayDashboardPanelProps {
-  onClose: () => void;
+  onClose?: () => void;
+  onSwitchToAgent?: (agentId: string) => void;
+  pendingTaskCount?: number;
+  /** When opening from ?panel=tasks (maps to dashboard + this tab). */
+  initialWorkTab?: Tab;
 }
 
-export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelProps) {
-  const [tab, setTab] = useState<Tab>("workflows");
-  const [workflows, setWorkflows] = useState<WorkflowStat[]>([]);
+export default function FridayDashboardPanel({
+  onSwitchToAgent,
+  pendingTaskCount = 0,
+  initialWorkTab,
+}: FridayDashboardPanelProps) {
+  const [tab, setTab] = useState<Tab>(() =>
+    initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "packages"
+      ? initialWorkTab
+      : "packages"
+  );
+  const [packages, setPackages] = useState<FridayPackageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
-  const fetchWorkflows = useCallback(() => {
-    fetch("/api/crm/workflow-stats")
+  const fetchPackages = useCallback(() => {
+    fetch("/api/crm/packages?operational=true&includeStats=true")
       .then((r) => r.json())
-      .then((data) => { if (mountedRef.current) setWorkflows(data.workflows || []); })
-      .catch(() => { if (mountedRef.current) setWorkflows([]); })
-      .finally(() => { if (mountedRef.current) setLoading(false); });
+      .then((data) => {
+        if (!mountedRef.current) return;
+        const rows = (data.packages || []) as Record<string, unknown>[];
+        setPackages(
+          rows.map((p) => ({
+            id: String(p.id),
+            name: String(p.name || ""),
+            templateId: String(p.templateId || ""),
+            stage: String(p.stage || "").toUpperCase(),
+            packageNumber: p.packageNumber != null ? Number(p.packageNumber) : undefined,
+            workflowCount: Number(p.workflowCount) || 0,
+            itemCount: p.itemCount != null ? Number(p.itemCount) : undefined,
+            createdAt: String(p.createdAt || ""),
+          }))
+        );
+      })
+      .catch(() => {
+        if (mountedRef.current) setPackages([]);
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchWorkflows();
-    const interval = setInterval(fetchWorkflows, POLL_INTERVAL);
-    const unsub = panelBus.on("workflow_manager", fetchWorkflows);
-    return () => { mountedRef.current = false; clearInterval(interval); unsub(); };
-  }, [fetchWorkflows]);
+    fetchPackages();
+    const interval = setInterval(fetchPackages, POLL_INTERVAL);
+    const unsubWf = panelBus.on("workflow_manager", fetchPackages);
+    const unsubPkg = panelBus.on("package_manager", fetchPackages);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+      unsubWf();
+      unsubPkg();
+    };
+  }, [fetchPackages]);
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
-      key: "workflows",
-      label: "Workflows",
-      count: loading ? "..." : `${workflows.length}`,
+      key: "packages",
+      label: "Packages",
+      count: loading ? "..." : `${packages.length}`,
+    },
+    {
+      key: "tasks",
+      label: "Human tasks",
+      count: pendingTaskCount > 0 ? String(pendingTaskCount) : undefined,
     },
     {
       key: "tools",
@@ -56,7 +98,6 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header with tabs */}
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
         {TABS.map((t) => (
           <button
@@ -70,10 +111,7 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
           >
             {t.label}
             {t.count && (
-              <span
-                className="text-[10px] font-normal"
-                style={{ color: "var(--text-tertiary)" }}
-              >
+              <span className="text-[10px] font-normal" style={{ color: "var(--text-tertiary)" }}>
                 {t.count}
               </span>
             )}
@@ -81,50 +119,45 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
         ))}
       </div>
 
-      {/* Tab content */}
       {tab === "tools" ? (
         <ToolsPanel />
+      ) : tab === "tasks" ? (
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <HumanTasksPanel
+            onSwitchToAgent={onSwitchToAgent}
+            packageStageFilter="ACTIVE"
+          />
+        </div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-[var(--text-tertiary)]">Loading workflows...</p>
+          <p className="text-sm text-[var(--text-tertiary)]">Loading packages...</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex overflow-x-auto">
           {COLUMNS.map((col) => {
-            const colWorkflows = workflows.filter(
-              (w) => w.stage.toUpperCase() === col.key
-            );
+            const colPkgs = packages.filter((p) => p.stage === col.key);
             return (
               <div
                 key={col.key}
                 className="flex-1 min-w-[160px] flex flex-col border-r border-[var(--border-color)] last:border-r-0"
               >
-                {/* Column header */}
                 <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: col.color }}
-                  />
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
                   <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
                     {col.label}
                   </span>
-                  {colWorkflows.length > 0 && (
-                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">
-                      {colWorkflows.length}
-                    </span>
+                  {colPkgs.length > 0 && (
+                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{colPkgs.length}</span>
                   )}
                 </div>
 
-                {/* Cards */}
                 <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-                  {colWorkflows.length === 0 ? (
+                  {colPkgs.length === 0 ? (
                     <div className="flex items-center justify-center py-8">
                       <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
                     </div>
                   ) : (
-                    colWorkflows.map((w) => (
-                      <WorkflowCard key={w.id} workflow={w} />
-                    ))
+                    colPkgs.map((p) => <FridayPackageCard key={p.id} pkg={p} />)
                   )}
                 </div>
               </div>

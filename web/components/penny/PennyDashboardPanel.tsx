@@ -14,6 +14,7 @@ interface PackageRow {
   name: string;
   templateId: string;
   stage: string;
+  packageNumber?: number | null;
   spec: PackageSpec;
   customerId: string | null;
   customerType: string;
@@ -34,6 +35,13 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   const [tab, setTab] = useState<Tab>("packages");
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [orphanState, setOrphanState] = useState<{
+    loading: boolean;
+    count: number;
+    migrateAllowed: boolean;
+  }>({ loading: true, count: 0, migrateAllowed: false });
+  const [orphanMigrating, setOrphanMigrating] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
   const pkgTemplates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
@@ -53,17 +61,62 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
       });
   }, []);
 
+  const fetchOrphans = useCallback(() => {
+    fetch("/api/crm/packages/orphan-workflows")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!mountedRef.current) return;
+        setOrphanState({
+          loading: false,
+          count: typeof data.count === "number" ? data.count : 0,
+          migrateAllowed: data.migrateAllowed === true,
+        });
+      })
+      .catch(() => {
+        if (mountedRef.current)
+          setOrphanState({ loading: false, count: 0, migrateAllowed: false });
+      });
+  }, []);
+
+  const runOrphanMigration = useCallback(async () => {
+    setMigrationError(null);
+    setOrphanMigrating(true);
+    try {
+      const r = await fetch("/api/crm/packages/orphan-workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: false }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = [data?.error, data?.hint].filter(Boolean).join(" ");
+        setMigrationError(msg || "Migration failed");
+        return;
+      }
+      panelBus.emit("package_manager");
+      fetchPackages();
+      fetchOrphans();
+    } finally {
+      setOrphanMigrating(false);
+    }
+  }, [fetchPackages, fetchOrphans]);
+
   useEffect(() => {
     mountedRef.current = true;
     fetchPackages();
-    const interval = setInterval(fetchPackages, POLL_INTERVAL);
-    const unsub = panelBus.on("package_manager", fetchPackages);
+    fetchOrphans();
+    const tick = () => {
+      fetchPackages();
+      fetchOrphans();
+    };
+    const interval = setInterval(tick, POLL_INTERVAL);
+    const unsub = panelBus.on("package_manager", tick);
     return () => {
       mountedRef.current = false;
       clearInterval(interval);
       unsub();
     };
-  }, [fetchPackages]);
+  }, [fetchPackages, fetchOrphans]);
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
@@ -157,7 +210,9 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                     >
                       <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-40" />
                       <span className="text-[var(--text-secondary)]">{d.label}</span>
-                      <span className="ml-auto">{d.targetCount} items</span>
+                      <span className="ml-auto">
+                        {d.volumeLabel?.trim() || `${d.targetCount} items`}
+                      </span>
                       <span className="text-[var(--text-tertiary)]">{d.ownerAgent}</span>
                     </div>
                   ))}
@@ -166,17 +221,53 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
             ))
           )}
         </div>
-      ) : loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-[var(--text-tertiary)]">Loading packages...</p>
-        </div>
-      ) : packages.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-[var(--text-tertiary)]">
-            No packages yet — ask Penny to create one
-          </p>
-        </div>
       ) : (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {!orphanState.loading && orphanState.count > 0 && (
+            <div className="shrink-0 mx-3 mt-2 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-[var(--text-secondary)]">
+              <div className="flex items-start justify-between gap-2">
+                <p>
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    {orphanState.count} workflow{orphanState.count === 1 ? "" : "s"}
+                  </span>{" "}
+                  from the legacy board have no package yet. Each can appear as a card in{" "}
+                  <span className="text-[var(--text-primary)]">Draft</span> after linking.
+                </p>
+                {orphanState.migrateAllowed ? (
+                  <button
+                    type="button"
+                    disabled={orphanMigrating}
+                    onClick={runOrphanMigration}
+                    className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-md bg-amber-600/30 text-amber-100 hover:bg-amber-600/45 disabled:opacity-50"
+                  >
+                    {orphanMigrating ? "…" : "Link to Draft"}
+                  </button>
+                ) : null}
+              </div>
+              {!orphanState.migrateAllowed && (
+                <p className="mt-1 text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+                  Run{" "}
+                  <code className="font-mono text-[var(--text-secondary)]">npm run migrate:orphan-workflows</code>{" "}
+                  from <code className="font-mono">web/</code>, or set{" "}
+                  <code className="font-mono">ALLOW_ORPHAN_PACKAGE_MIGRATION=1</code> to enable the button here.
+                </p>
+              )}
+              {migrationError ? (
+                <p className="mt-1.5 text-[10px] text-red-400/90">{migrationError}</p>
+              ) : null}
+            </div>
+          )}
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-sm text-[var(--text-tertiary)]">Loading packages...</p>
+            </div>
+          ) : packages.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-sm text-[var(--text-tertiary)]">
+                No packages yet — ask Penny to create one
+              </p>
+            </div>
+          ) : (
         /* ── Two-column board: Draft (40%) | Testing (60%) ── */
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* Draft column — 40% */}
@@ -252,6 +343,8 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
               )}
             </div>
           </div>
+        </div>
+          )}
         </div>
       )}
     </div>

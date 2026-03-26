@@ -19,6 +19,10 @@ export interface PackageDeliverable {
   /** Human-readable label */
   label: string;
   /**
+   * When set, package planner shows this instead of derived "N messages/items" (e.g. daily cadence).
+   */
+  volumeLabel?: string;
+  /**
    * Pacing controls how items flow through the pipeline.
    * - batchSize: how many items to process per interval (default: all at once)
    * - interval: "daily" | "weekly" | "biweekly" — time between batches
@@ -63,6 +67,14 @@ export interface PackageDeliverable {
   };
 }
 
+/** Tim warm-outreach: timed "find someone on LinkedIn" slots (see lib/warm-outreach-discovery.ts). */
+export interface WarmOutreachDiscoverySpec {
+  discoveriesPerDay?: number;
+  minIntervalMinutes?: number;
+  backlogWarnThreshold?: number;
+  paused?: boolean;
+}
+
 /**
  * Shape of the spec JSONB stored in the _package table.
  * Contains the package brief and the deliverables array.
@@ -72,6 +84,8 @@ export interface PackageSpec {
   brief?: string;
   /** Workflow deliverables that make up this package. */
   deliverables: PackageDeliverable[];
+  /** Optional — warm-outreach template only; hourly job + heartbeat use this. */
+  warmOutreachDiscovery?: WarmOutreachDiscoverySpec;
 }
 
 export interface PackageTemplateSpec {
@@ -194,6 +208,7 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
         ownerAgent: "tim",
         targetCount: 10,
         label: "Warm Outreach",
+        volumeLabel: "Five messages per day",
       },
     ],
   },

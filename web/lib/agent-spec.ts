@@ -63,6 +63,8 @@ export interface RoutineSpec {
   logFile?: string;
   /** Whether this routine is active. Defaults to true. */
   enabled?: boolean;
+  /** IANA timezone for node-cron (e.g. America/Los_Angeles). Omit for server local time. */
+  timeZone?: string;
 }
 
 // ─── Heartbeat spec ───

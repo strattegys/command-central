@@ -1,0 +1,350 @@
+/**
+ * Warm outreach — timed "find someone on LinkedIn" slots (AWAITING_CONTACT).
+ * Driven by package spec.warmOutreachDiscovery + hourly cron; ENDED still opens
+ * one replacement when under backlog cap (does not consume daily cron quota).
+ */
+
+import { query } from "./db";
+import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
+
+/** Pacific wall clock for outreach cadence (cron uses same zone). */
+export const WARM_OUTREACH_PACIFIC_TZ = "America/Los_Angeles";
+
+function pacificMinutesSinceMidnight(d = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: WARM_OUTREACH_PACIFIC_TZ,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(d);
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+  const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+  return hour * 60 + minute;
+}
+
+/**
+ * Inclusive window 8:30 AM – 4:30 PM Pacific (same as user-facing “working hours” for discovery ticks).
+ */
+export function isWarmOutreachPacificBusinessHoursNow(d = new Date()): boolean {
+  const m = pacificMinutesSinceMidnight(d);
+  const start = 8 * 60 + 30;
+  const end = 16 * 60 + 30;
+  return m >= start && m <= end;
+}
+
+function pacificCalendarDateString(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: WARM_OUTREACH_PACIFIC_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+export const DEFAULT_WARM_OUTREACH_DISCOVERY = {
+  /** Max extra discovery slots the hourly job may add per UTC calendar day */
+  discoveriesPerDay: 5,
+  /** Minimum time between new discovery slots (minutes) */
+  minIntervalMinutes: 60,
+  /** At or above this count of AWAITING_CONTACT items: no cron spawn, heartbeat nags */
+  backlogWarnThreshold: 10,
+  /** When true, hourly job skips spawning (ENDED replacement still respects backlog only) */
+  paused: false,
+} as const;
+
+export type WarmOutreachDiscoveryConfig = {
+  discoveriesPerDay: number;
+  minIntervalMinutes: number;
+  backlogWarnThreshold: number;
+  paused: boolean;
+};
+
+export interface WarmOutreachHeartbeatFinding {
+  category: string;
+  title: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
+}
+
+type DiscoveryCadenceState = {
+  day: string;
+  count: number;
+  lastSpawnAt: string;
+};
+
+function parseJsonObject(spec: unknown): Record<string, unknown> {
+  try {
+    return typeof spec === "string" ? JSON.parse(spec) : (spec as Record<string, unknown>) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function mergeWarmOutreachDiscovery(pkgSpec: unknown): WarmOutreachDiscoveryConfig {
+  const root = parseJsonObject(pkgSpec);
+  const raw = root.warmOutreachDiscovery as Partial<WarmOutreachDiscoveryConfig> | undefined;
+  return {
+    discoveriesPerDay: clampInt(raw?.discoveriesPerDay, DEFAULT_WARM_OUTREACH_DISCOVERY.discoveriesPerDay, 0, 24),
+    minIntervalMinutes: clampInt(
+      raw?.minIntervalMinutes,
+      DEFAULT_WARM_OUTREACH_DISCOVERY.minIntervalMinutes,
+      15,
+      24 * 60
+    ),
+    backlogWarnThreshold: clampInt(
+      raw?.backlogWarnThreshold,
+      DEFAULT_WARM_OUTREACH_DISCOVERY.backlogWarnThreshold,
+      1,
+      500
+    ),
+    paused: Boolean(raw?.paused),
+  };
+}
+
+function clampInt(v: unknown, fallback: number, lo: number, hi: number): number {
+  const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+export async function countAwaitingContact(workflowId: string): Promise<number> {
+  const r = await query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM "_workflow_item"
+     WHERE "workflowId" = $1 AND stage = 'AWAITING_CONTACT' AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  return parseInt(r[0]?.c || "0", 10);
+}
+
+async function countTotalItems(workflowId: string): Promise<number> {
+  const r = await query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM "_workflow_item"
+     WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  return parseInt(r[0]?.c || "0", 10);
+}
+
+async function lastDiscoveryActivityMs(workflowId: string, wfSpec: Record<string, unknown>): Promise<number> {
+  const cad = wfSpec.discoveryCadence as Partial<DiscoveryCadenceState> | undefined;
+  if (cad?.lastSpawnAt) {
+    const t = Date.parse(cad.lastSpawnAt);
+    if (Number.isFinite(t)) return t;
+  }
+  const r = await query<{ t: string | null }>(
+    `SELECT MAX("createdAt")::text AS t FROM "_workflow_item"
+     WHERE "workflowId" = $1 AND stage = 'AWAITING_CONTACT' AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  const t = r[0]?.t;
+  return t ? Date.parse(t) : 0;
+}
+
+async function updateWorkflowDiscoveryCadence(
+  workflowId: string,
+  wfSpec: Record<string, unknown>,
+  next: DiscoveryCadenceState
+): Promise<void> {
+  const nextSpec = { ...wfSpec, discoveryCadence: next };
+  await query(
+    `UPDATE "_workflow" SET spec = $1::jsonb, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+    [JSON.stringify(nextSpec), workflowId]
+  );
+}
+
+/** Insert Next Contact + workflow item; PACKAGE_BRIEF when package has brief. */
+export async function insertWarmOutreachDiscoveryItem(
+  workflowId: string,
+  packageId: string | null
+): Promise<string | null> {
+  const pRows = await query<{ id: string }>(
+    `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, NOW(), NOW())
+     RETURNING id`,
+    ["Next", "Contact", "Warm outreach — awaiting contact details"]
+  );
+  const personId = (pRows[0] as Record<string, unknown>)?.id as string | undefined;
+  if (!personId) return null;
+
+  const ins = await query<{ id: string }>(
+    `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+     VALUES ($1, 'AWAITING_CONTACT', 'person', $2, NOW(), NOW())
+     RETURNING id`,
+    [workflowId, personId]
+  );
+  const itemId = ins[0]?.id ?? null;
+  if (!itemId) return null;
+
+  await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
+  return itemId;
+}
+
+export type WarmOutreachActiveRow = {
+  workflowId: string;
+  packageId: string | null;
+  packageNumber: number | null;
+  packageName: string;
+  wfSpec: Record<string, unknown>;
+  pkgSpec: Record<string, unknown>;
+};
+
+export async function queryWarmOutreachActiveRows(): Promise<WarmOutreachActiveRow[]> {
+  const rows = await query<{
+    workflow_id: string;
+    packageId: string | null;
+    packageNumber: string | number | null;
+    packageName: string;
+    wf_spec: unknown;
+    pkg_spec: unknown;
+  }>(
+    `SELECT w.id AS workflow_id,
+            w."packageId" AS "packageId",
+            p."packageNumber" AS "packageNumber",
+            p.name AS "packageName",
+            w.spec AS wf_spec,
+            p.spec AS pkg_spec
+     FROM "_workflow" w
+     INNER JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL
+     WHERE w."deletedAt" IS NULL
+       AND UPPER(w.stage::text) = 'ACTIVE'
+       AND UPPER(p.stage::text) = 'ACTIVE'
+       AND (w.spec->>'workflowType') = 'warm-outreach'`
+  );
+
+  return rows.map((r) => ({
+    workflowId: r.workflow_id,
+    packageId: r.packageId,
+    packageNumber:
+      r.packageNumber != null && r.packageNumber !== ""
+        ? typeof r.packageNumber === "number"
+          ? r.packageNumber
+          : parseInt(String(r.packageNumber), 10)
+        : null,
+    packageName: r.packageName || "",
+    wfSpec: parseJsonObject(r.wf_spec),
+    pkgSpec: parseJsonObject(r.pkg_spec),
+  }));
+}
+
+/**
+ * After a contact hits ENDED: one replacement slot if under caps (ignores daily cron quota).
+ */
+export async function spawnAfterWarmOutreachEnded(
+  workflowId: string,
+  targetCount: number
+): Promise<string | null> {
+  const wfRows = await query<{ packageId: string | null; spec: unknown }>(
+    `SELECT "packageId", spec FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  if (wfRows.length === 0) return null;
+  const packageId = wfRows[0].packageId;
+  const wfSpec = parseJsonObject(wfRows[0].spec);
+
+  let pkgSpec: Record<string, unknown> = {};
+  if (packageId) {
+    const p = await query<{ spec: unknown }>(
+      `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+      [packageId]
+    );
+    if (p[0]) pkgSpec = parseJsonObject(p[0].spec);
+  }
+  const cfg = mergeWarmOutreachDiscovery(pkgSpec);
+
+  const total = await countTotalItems(workflowId);
+  if (total >= targetCount) return null;
+
+  const awaiting = await countAwaitingContact(workflowId);
+  if (awaiting >= cfg.backlogWarnThreshold) return null;
+
+  return insertWarmOutreachDiscoveryItem(workflowId, packageId);
+}
+
+/**
+ * Hourly cron: add at most one slot per workflow when under daily + interval + backlog limits.
+ */
+export async function trySpawnWarmOutreachDiscoveryCron(row: WarmOutreachActiveRow): Promise<{
+  spawned: boolean;
+  reason?: string;
+}> {
+  const cfg = mergeWarmOutreachDiscovery(row.pkgSpec);
+  if (cfg.paused) return { spawned: false, reason: "paused" };
+
+  const wfSpec = row.wfSpec;
+  const targetCount = typeof wfSpec.targetCount === "number" ? wfSpec.targetCount : 10;
+
+  const awaiting = await countAwaitingContact(row.workflowId);
+  if (awaiting >= cfg.backlogWarnThreshold) return { spawned: false, reason: "backlog" };
+
+  const total = await countTotalItems(row.workflowId);
+  if (total >= targetCount) return { spawned: false, reason: "target_cap" };
+
+  const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
+  const day = pacificCalendarDateString();
+  const countToday = cadence.day === day ? (typeof cadence.count === "number" ? cadence.count : 0) : 0;
+  if (countToday >= cfg.discoveriesPerDay) return { spawned: false, reason: "daily_cap" };
+
+  const lastMs = await lastDiscoveryActivityMs(row.workflowId, wfSpec);
+  if (lastMs > 0 && Date.now() - lastMs < cfg.minIntervalMinutes * 60 * 1000) {
+    return { spawned: false, reason: "interval" };
+  }
+
+  const itemId = await insertWarmOutreachDiscoveryItem(row.workflowId, row.packageId);
+  if (!itemId) return { spawned: false, reason: "insert_failed" };
+
+  await updateWorkflowDiscoveryCadence(row.workflowId, wfSpec, {
+    day,
+    count: countToday + 1,
+    lastSpawnAt: new Date().toISOString(),
+  });
+
+  return { spawned: true };
+}
+
+export async function runWarmOutreachDiscoveryTick(): Promise<{ spawned: number; skipped: number }> {
+  try {
+    if (!isWarmOutreachPacificBusinessHoursNow()) {
+      return { spawned: 0, skipped: 0 };
+    }
+
+    const rows = await queryWarmOutreachActiveRows();
+    let spawned = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      const r = await trySpawnWarmOutreachDiscoveryCron(row);
+      if (r.spawned) spawned++;
+      else skipped++;
+    }
+    if (spawned > 0) {
+      console.log(
+        `[warm-outreach-discovery] spawned ${spawned} discovery slot(s) across ${rows.length} workflow(s)`
+      );
+    }
+    return { spawned, skipped };
+  } catch (error) {
+    console.error("[warm-outreach-discovery] tick failed:", error);
+    return { spawned: 0, skipped: 0 };
+  }
+}
+
+export async function checkWarmOutreachBacklogFindings(): Promise<WarmOutreachHeartbeatFinding[]> {
+  const rows = await queryWarmOutreachActiveRows();
+  const findings: WarmOutreachHeartbeatFinding[] = [];
+  for (const row of rows) {
+    const cfg = mergeWarmOutreachDiscovery(row.pkgSpec);
+    const n = await countAwaitingContact(row.workflowId);
+    if (n >= cfg.backlogWarnThreshold) {
+      const num = row.packageNumber != null && !Number.isNaN(row.packageNumber) ? row.packageNumber : "?";
+      findings.push({
+        category: `warm-outreach-backlog-${num}`,
+        title: `Warm outreach package #${num}: ${n} find-contact tasks backed up`,
+        detail:
+          `Package "${row.packageName}" has ${n} open "Next contact" slots (threshold ${cfg.backlogWarnThreshold}). ` +
+          `Catch up on LinkedIn discovery. To pause auto-added slots, PATCH the package with ` +
+          `spec.warmOutreachDiscovery.paused=true. To allow a larger queue, raise backlogWarnThreshold.`,
+        priority: "high",
+      });
+    }
+  }
+  return findings;
+}

@@ -23,6 +23,8 @@ export interface CronJobConfig {
   logFile?: string;
   agentId: string;
   enabled: boolean;
+  /** IANA zone passed to node-cron when set */
+  timeZone?: string;
   lastRun?: Date;
   lastResult?: string; // "success" or error message
 }
@@ -82,22 +84,27 @@ function registerJob(
 
   if (!config.enabled) return;
 
-  const task = schedule(config.schedule, async () => {
-    const startTime = new Date();
-    try {
-      await handler();
-      job.lastRun = startTime;
-      job.lastResult = "success";
-      logToFile(config.logFile, `[OK] ${config.name} completed`);
-    } catch (error) {
-      const errMsg =
-        error instanceof Error ? error.message : String(error);
-      job.lastRun = startTime;
-      job.lastResult = `error: ${errMsg.slice(0, 200)}`;
-      logToFile(config.logFile, `[ERROR] ${config.name}: ${errMsg}`);
-      console.error(`[cron] ${config.name} failed:`, errMsg);
-    }
-  });
+  const cronOpts = config.timeZone ? { timezone: config.timeZone } : undefined;
+  const task = schedule(
+    config.schedule,
+    async () => {
+      const startTime = new Date();
+      try {
+        await handler();
+        job.lastRun = startTime;
+        job.lastResult = "success";
+        logToFile(config.logFile, `[OK] ${config.name} completed`);
+      } catch (error) {
+        const errMsg =
+          error instanceof Error ? error.message : String(error);
+        job.lastRun = startTime;
+        job.lastResult = `error: ${errMsg.slice(0, 200)}`;
+        logToFile(config.logFile, `[ERROR] ${config.name}: ${errMsg}`);
+        console.error(`[cron] ${config.name} failed:`, errMsg);
+      }
+    },
+    cronOpts
+  );
 
   scheduledTasks.set(config.id, task);
 }
@@ -135,6 +142,11 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
     if (count > 0) {
       console.log(`[cron] Processed ${count} new LinkedIn connection(s)`);
     }
+  },
+
+  "warm-outreach-discovery": () => async () => {
+    const { runWarmOutreachDiscoveryTick } = await import("./warm-outreach-discovery");
+    await runWarmOutreachDiscoveryTick();
   },
 
   "scout-daily-research": () => async () => {
@@ -254,6 +266,7 @@ export function initCronJobs(): void {
           logFile: routine.logFile,
           agentId: spec.id,
           enabled: routine.enabled !== false,
+          timeZone: routine.timeZone,
         },
         factory(routine, spec.id)
       );

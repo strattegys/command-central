@@ -5,6 +5,8 @@ import { readMemory } from "./memory";
 import { getAgentConfig } from "./agent-config";
 import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from "./tasks";
 import { writeNotification } from "./notifications";
+import type { WarmOutreachHeartbeatFinding } from "./warm-outreach-discovery";
+import { checkWarmOutreachBacklogFindings } from "./warm-outreach-discovery";
 
 /**
  * Heartbeat System — Autonomous Agent Task Checking
@@ -419,10 +421,27 @@ Summarize what you found, what actions you took, and recommend next steps.`;
  * When detectOnly=true, returns findings without LLM execution.
  * When detectOnly=false (default), runs autonomous LLM execution with tools.
  */
+async function checkWarmOutreachBacklogSafe(): Promise<HeartbeatFinding[]> {
+  try {
+    const raw = await checkWarmOutreachBacklogFindings();
+    return raw.map((f: WarmOutreachHeartbeatFinding) => ({
+      category: f.category,
+      title: f.title,
+      detail: f.detail,
+      priority: f.priority,
+    }));
+  } catch (error) {
+    console.error("[heartbeat] Warm outreach backlog check failed:", error);
+    return [];
+  }
+}
+
 export async function runTimHeartbeat(
   detectOnly = false
 ): Promise<HeartbeatFinding[]> {
   console.log("[heartbeat] Tim heartbeat starting...");
+
+  const warmBacklog = await checkWarmOutreachBacklogSafe();
 
   const allFindings: HeartbeatFinding[] = [
     ...checkLinkedInAlerts(),
@@ -430,6 +449,7 @@ export async function runTimHeartbeat(
     ...checkScheduledMessages(),
     ...checkWorkflowHealth(),
     ...checkCompletedTasks(),
+    ...warmBacklog,
   ];
 
   if (allFindings.length === 0) {

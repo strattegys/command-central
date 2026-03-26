@@ -7,18 +7,10 @@ import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { TIM_WARM_OUTREACH_PACKAGE_BRIEF } from "@/lib/package-spec-briefs/tim-warm-outreach-package-brief";
 import { panelBus } from "@/lib/events";
+import { getAgentSpec } from "@/lib/agent-registry";
+import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
 import CampaignSpecModal from "./CampaignSpecModal";
-
-const AGENT_COLORS: Record<string, string> = {
-  scout: "#2563EB",
-  tim: "#1D9E75",
-  ghost: "#4A90D9",
-  marni: "#D4A017",
-  penny: "#E67E22",
-  friday: "#9B59B6",
-  king: "#5a6d7a",
-};
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "people",
@@ -30,6 +22,7 @@ interface PackageRow {
   name: string;
   templateId: string;
   stage: string;
+  packageNumber?: number | null;
   spec: PackageSpec;
   customerId: string | null;
   customerType: string;
@@ -358,6 +351,11 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
           </svg>
           <div className="min-w-0">
             <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
+              {pkg.packageNumber != null && !Number.isNaN(pkg.packageNumber) && (
+                <span className="text-[var(--text-tertiary)] font-bold tabular-nums mr-1">
+                  #{pkg.packageNumber}
+                </span>
+              )}
               {pkg.name}
             </div>
             <div className="text-[10px] text-[var(--text-tertiary)] truncate">
@@ -444,6 +442,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
                 label={d.label}
                 agent={d.ownerAgent}
                 volume={d.targetCount}
+                volumeLabel={d.volumeLabel}
                 itemType={wfType?.itemType || "content"}
                 itemTypeLabel={itemTypeLabel}
                 stages={stages}
@@ -544,6 +543,8 @@ interface DeliverableRowProps {
   label: string;
   agent: string;
   volume: number;
+  /** Overrides derived volume line (e.g. "Five messages per day") */
+  volumeLabel?: string;
   itemType: "person" | "content";
   itemTypeLabel: string;
   stages: StageSpec[];
@@ -564,6 +565,7 @@ function DeliverableRow({
   label,
   agent,
   volume,
+  volumeLabel,
   itemType,
   itemTypeLabel,
   stages,
@@ -579,7 +581,7 @@ function DeliverableRow({
   pacing,
   onInspect,
 }: DeliverableRowProps) {
-  const agentColor = AGENT_COLORS[agent] || "#888";
+  const agentColor = getAgentSpec(agent).color;
   const totalInPipeline = volumeInfo?.totalItems || 0;
   // Use raw volume prop (from deliverable template) for display logic, not API response
   const isContinuous = volume === 0 && !!stopWhen;
@@ -588,7 +590,9 @@ function DeliverableRow({
 
   // Build volume display string
   let volumeDisplay = "";
-  if (isContinuous) {
+  if (volumeLabel && volumeLabel.trim()) {
+    volumeDisplay = volumeLabel.trim();
+  } else if (isContinuous) {
     // Scout: just "5 per day"
     volumeDisplay = pacing ? `${pacing.batchSize} ${intervalLabel}` : "continuous";
   } else if (itemType === "person" && volume > 0) {
@@ -608,12 +612,18 @@ function DeliverableRow({
     <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
       {/* Header: agent avatar + label + agent name + volume + inspect */}
       <div className="flex items-center gap-3 mb-2.5">
-        <img
-          src={`/api/agent-avatar?id=${agent}`}
-          alt={agent}
-          className="w-7 h-7 rounded-full object-cover shrink-0 opacity-90"
-          style={{ border: `1px solid ${agentColor}55` }}
-        />
+        <span
+          className="rounded-full shrink-0 opacity-90"
+          style={{ padding: "1px", background: `${agentColor}55` }}
+        >
+          <AgentAvatar
+            agentId={agent}
+            name={getAgentSpec(agent).name}
+            color={agentColor}
+            circleClassName="w-7 h-7 min-w-[28px] min-h-[28px]"
+            initialClassName="text-xs font-semibold text-white"
+          />
+        </span>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-xs font-semibold text-[var(--text-primary)] leading-tight">
             {label}
