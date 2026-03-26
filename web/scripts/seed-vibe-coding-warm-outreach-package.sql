@@ -4,7 +4,7 @@
 -- Preferred (loads web/.env.local — same CRM_DB_* as the Next app):
 --   cd web && npm run db:exec -- scripts/seed-vibe-coding-warm-outreach-package.sql
 --
--- Or: docker exec -i twenty-db-1 psql -U postgres -d default < web/scripts/seed-vibe-coding-warm-outreach-package.sql
+-- Or (repo root): docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default -f - < web/scripts/seed-vibe-coding-warm-outreach-package.sql
 -- Or: psql "postgresql://USER:PASS@HOST:5432/DATABASE" -f web/scripts/seed-vibe-coding-warm-outreach-package.sql
 --
 -- spec.brief below is the live outreach brief for this package (Outreach brief UI, PACKAGE_BRIEF artifact, Groq).

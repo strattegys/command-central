@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Enrich campaign contacts missing company info via Apollo People Match API,
-then link them to companies in Twenty CRM via direct DB access.
+then link them to companies via direct DB access (Command Central crm-db).
 
-Run on the server: python3 -u enrich_companies.py
+Run on the server from repo root context: python3 -u scripts/enrich_companies.py
 """
 
 import json
@@ -14,6 +14,7 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+from pathlib import Path
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
 sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
@@ -22,17 +23,38 @@ sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
 APOLLO_API_KEY = "deVXTbyaLYzuQtlv3bwBZA"
 APOLLO_BASE = "https://api.apollo.io/api/v1"
 
-# Twenty CRM DB
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 WS = "workspace_9rc10n79wgdr0r3z6mzti24f6"
 CAMPAIGN_ID = "b960a122-9ba2-4e12-a8fe-cb7fc9deac2c"
 
 
+def _psql_cmd(extra):
+    return [
+        "docker",
+        "compose",
+        "--env-file",
+        str(REPO_ROOT / "web" / ".env.local"),
+        "-f",
+        str(REPO_ROOT / "docker-compose.yml"),
+        "exec",
+        "-T",
+        "crm-db",
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "default",
+        *extra,
+    ]
+
+
 def db_query(sql):
-    """Run a SQL query via docker exec and return rows."""
+    """Run a SQL query via compose exec crm-db and return rows."""
     result = subprocess.run(
-        ["docker", "exec", "twenty-db-1", "psql", "-U", "postgres", "-d", "default",
-         "-t", "-A", "-F", "\t", "-c", sql],
-        capture_output=True, text=True
+        _psql_cmd(["-t", "-A", "-F", "\t", "-c", sql]),
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         print(f"  DB ERROR: {result.stderr.strip()}")
@@ -47,8 +69,9 @@ def db_query(sql):
 def db_exec(sql):
     """Run a SQL statement."""
     result = subprocess.run(
-        ["docker", "exec", "twenty-db-1", "psql", "-U", "postgres", "-d", "default", "-c", sql],
-        capture_output=True, text=True
+        _psql_cmd(["-c", sql]),
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         print(f"  DB ERROR: {result.stderr.strip()}")

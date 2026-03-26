@@ -50,9 +50,9 @@ printf '%s\\n' "$LINE" >> "$ENV"
 cd /opt/agent-tim
 git fetch origin master
 git reset --hard origin/master
-if docker network inspect crm_shared >/dev/null 2>&1; then CF="-f docker-compose.yml -f docker-compose.crm-network.yml"; else CF="-f docker-compose.yml"; fi
-docker compose $CF build --no-cache web
-docker compose $CF up -d
+DC="docker compose --env-file web/.env.local -f docker-compose.yml"
+$DC build --no-cache web
+$DC up -d
 echo "[push-inworld:prod] Server: INWORLD_TTS_KEY merged; compose up complete."
 `;
 

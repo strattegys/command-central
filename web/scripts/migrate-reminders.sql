@@ -1,5 +1,5 @@
 -- Migration: Create _reminder table for structured reminders system
--- Run: cat migrate-reminders.sql | docker exec -i twenty-db-1 psql -U postgres -d default
+-- Run (repo root): cat web/scripts/migrate-reminders.sql | docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default
 
 SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
 

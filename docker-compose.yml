@@ -1,4 +1,28 @@
 services:
+  # ── CRM Postgres (Command Central Kanban, workflows, packages, human-tasks) ──
+  # Same stack as `web` — no shared network hacks or legacy Twenty container names.
+  # Compose needs CRM_DB_PASSWORD for first-time init (pass --env-file web/.env.local).
+  crm-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${CRM_DB_USER:-postgres}
+      POSTGRES_DB: ${CRM_DB_NAME:-default}
+      # Quoted so YAML does not treat colons inside the ${...:?...} error text as a new mapping key.
+      POSTGRES_PASSWORD: "${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD in web/.env.local. Run docker compose with --env-file web/.env.local}"
+    volumes:
+      - crm_postgres_data:/var/lib/postgresql/data
+    # Loopback only — not exposed on the public interface. Lets SSH tunnel scripts forward
+    # droplet localhost:5432 → laptop (e.g. 5433) so Docker-based dev can reach prod CRM data.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CRM_DB_USER:-postgres} -d ${CRM_DB_NAME:-default}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
   # ── Reverse proxy (auto-SSL via Let's Encrypt) ──
   caddy:
     image: caddy:2-alpine
@@ -22,9 +46,12 @@ services:
     restart: unless-stopped
     # Must include INWORLD_TTS_KEY for Suzi/Tim read-aloud (same as Rainbow Bot). On droplet: /opt/agent-tim/web/.env.local
     env_file: ./web/.env.local
-    # Reach Postgres (Twenty CRM) bound on the droplet host — 127.0.0.1 inside the container is NOT the host.
+    # Local dev / tools on the host (tunnel, optional). CRM DB in production is service `crm-db` below.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      crm-db:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -33,6 +60,9 @@ services:
       # Writable uploads; bind mount below survives rebuilds (named volumes were empty on fresh compose projects)
       - AVATAR_DIR=/data/agent-avatars
       # Auth.js v5: set in web/.env.local — AUTH_SECRET (or NEXTAUTH_SECRET) and AUTH_URL=https://your-domain (see .env.local.example)
+      # Always reach Postgres on the compose network (overrides CRM_DB_HOST in .env.local for production).
+      - CRM_DB_HOST=crm-db
+      - CRM_DB_PORT=5432
     volumes:
       # Repo agents/ → container: sessions JSONL, prompts, memory dirs persist on the host (not wiped on image rebuild)
       - ./agents:/agents
@@ -44,3 +74,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  crm_postgres_data:

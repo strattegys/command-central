@@ -1,5 +1,5 @@
 -- Migration: Create _note table for standalone Notes feature
--- Run: cat migrate-notes.sql | docker exec -i twenty-db-1 psql -U postgres -d default
+-- Run (repo root): cat web/scripts/migrate-notes.sql | docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default
 
 SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
 

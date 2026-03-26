@@ -1,23 +1,29 @@
 #!/bin/bash
-# CRM Tool — Direct PostgreSQL (replaces Twenty REST API)
-# All queries go through: docker exec twenty-db-1 psql
+# CRM Tool — Direct PostgreSQL (Command Central compose service crm-db)
+# Requires: repo root with web/.env.local and docker-compose.yml (e.g. /opt/agent-tim on the droplet).
 
 SCHEMA="workspace_9rc10n79wgdr0r3z6mzti24f6"
-PSQL="docker exec twenty-db-1 psql -U postgres -d default -t -A -q"
+CC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CC_ROOT
+
+crm_psql() {
+  docker compose --env-file "$CC_ROOT/web/.env.local" -f "$CC_ROOT/docker-compose.yml" exec -T crm-db \
+    psql -U postgres -d default "$@"
+}
 
 # Run a read query, return raw output
 run_sql() {
-  $PSQL -c "SET search_path TO \"$SCHEMA\"; $1"
+  crm_psql -t -A -q -c "SET search_path TO \"$SCHEMA\"; $1"
 }
 
 # Run a query and return JSON via json_agg
 run_sql_json() {
-  $PSQL -c "SET search_path TO \"$SCHEMA\"; SELECT COALESCE(json_agg(t)::text, '[]') FROM ($1) t;"
+  crm_psql -t -A -q -c "SET search_path TO \"$SCHEMA\"; SELECT COALESCE(json_agg(t)::text, '[]') FROM ($1) t;"
 }
 
 # Run a query and return single JSON object
 run_sql_json_obj() {
-  $PSQL -c "SET search_path TO \"$SCHEMA\"; SELECT COALESCE(row_to_json(t)::text, 'null') FROM ($1) t;"
+  crm_psql -t -A -q -c "SET search_path TO \"$SCHEMA\"; SELECT COALESCE(row_to_json(t)::text, 'null') FROM ($1) t;"
 }
 
 # Safe SQL string escaping via Python
@@ -41,7 +47,7 @@ case "$1" in
     if [ -z "$2" ]; then echo "Usage: search-contacts <query>"; exit 1; fi
     Q=$(sql_escape "$2")
     # Return in Twenty-compatible format for Slack gateway
-    RESULTS=$($PSQL -c "SET search_path TO \"$SCHEMA\";
+    RESULTS=$(crm_psql -t -A -q -c "SET search_path TO \"$SCHEMA\";
       SELECT COALESCE(json_agg(json_build_object(
         'id', id,
         'name', json_build_object('firstName', \"nameFirstName\", 'lastName', \"nameLastName\"),
@@ -63,7 +69,7 @@ case "$1" in
 
   get-contact)
     if [ -z "$2" ]; then echo "Usage: get-contact <id>"; exit 1; fi
-    RESULT=$($PSQL -c "SET search_path TO \"$SCHEMA\";
+    RESULT=$(crm_psql -t -A -q -c "SET search_path TO \"$SCHEMA\";
       SELECT row_to_json(t)::text FROM (
         SELECT p.id, p.\"nameFirstName\" AS \"firstName\", p.\"nameLastName\" AS \"lastName\",
           p.\"emailsPrimaryEmail\" AS email, p.\"linkedinLinkPrimaryLinkUrl\" AS \"linkedinUrl\",
@@ -81,8 +87,9 @@ case "$1" in
     if [ -z "$2" ]; then echo "Usage: create-contact <json>"; exit 1; fi
     # Parse JSON payload with Python, generate INSERT, execute
     RESULT=$(python3 -c "
-import json, subprocess, sys
+import json, subprocess, sys, os
 data = json.loads(sys.argv[1])
+root = os.environ['CC_ROOT']
 fn = data.get('firstName','').replace(\"'\",\"''\")
 ln = data.get('lastName','').replace(\"'\",\"''\")
 email = data.get('email','').replace(\"'\",\"''\")
@@ -96,7 +103,7 @@ VALUES (gen_random_uuid(), '{fn}', '{ln}', NULLIF('{email}',''), NULLIF('{linked
   NULLIF('{title}',''), '{stage}', NOW(), NOW())
 RETURNING id;\"\"\"
 result = subprocess.run(
-  ['docker','exec','twenty-db-1','psql','-U','postgres','-d','default','-t','-A','-q','-c',sql],
+  ['docker','compose','--env-file',f'{root}/web/.env.local','-f',f'{root}/docker-compose.yml','exec','-T','crm-db','psql','-U','postgres','-d','default','-t','-A','-q','-c',sql],
   capture_output=True, text=True
 )
 uid = result.stdout.strip()
@@ -112,9 +119,10 @@ else:
   update-contact)
     if [ -z "$2" ] || [ -z "$3" ]; then echo "Usage: update-contact <id> <json>"; exit 1; fi
     python3 -c "
-import json, subprocess, sys
+import json, subprocess, sys, os
 cid = sys.argv[1]
 data = json.loads(sys.argv[2])
+root = os.environ['CC_ROOT']
 sets = []
 field_map = {
   'firstName': '\"nameFirstName\"', 'lastName': '\"nameLastName\"',
@@ -138,7 +146,7 @@ if not sets:
 set_clause = ', '.join(sets)
 sql = f'SET search_path TO \"$SCHEMA\"; UPDATE person SET {set_clause}, \"updatedAt\" = NOW() WHERE id = \\'{cid}\\''
 result = subprocess.run(
-  ['docker','exec','twenty-db-1','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
+  ['docker','compose','--env-file',f'{root}/web/.env.local','-f',f'{root}/docker-compose.yml','exec','-T','crm-db','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
   capture_output=True, text=True
 )
 if result.returncode == 0:
@@ -162,7 +170,8 @@ else:
     TARGET_TYPE="${4:-person}"
     TARGET_ID="$5"
     python3 -c "
-import json, subprocess, sys
+import json, subprocess, sys, os
+root = os.environ['CC_ROOT']
 title = sys.argv[1].replace(\"'\", \"''\")
 body = sys.argv[2].replace(\"'\", \"''\")
 ttype = sys.argv[3]
@@ -192,7 +201,7 @@ else:
   RETURNING id;\"\"\"
 
 result = subprocess.run(
-  ['docker','exec','twenty-db-1','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
+  ['docker','compose','--env-file',f'{root}/web/.env.local','-f',f'{root}/docker-compose.yml','exec','-T','crm-db','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
   capture_output=True, text=True
 )
 uid = result.stdout.strip()
@@ -235,7 +244,8 @@ else:
   create-company)
     if [ -z "$2" ]; then echo "Usage: create-company <json>"; exit 1; fi
     RESULT=$(python3 -c "
-import json, subprocess, sys
+import json, subprocess, sys, os
+root = os.environ['CC_ROOT']
 data = json.loads(sys.argv[1])
 name = data.get('name','').replace(\"'\",\"''\")
 domain = data.get('domain','').replace(\"'\",\"''\")
@@ -244,7 +254,7 @@ INSERT INTO company (id, name, \\\"domainNamePrimaryLinkUrl\\\", \\\"createdAt\\
 VALUES (gen_random_uuid(), '{name}', NULLIF('{domain}',''), NOW(), NOW())
 RETURNING id;\"\"\"
 result = subprocess.run(
-  ['docker','exec','twenty-db-1','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
+  ['docker','compose','--env-file',f'{root}/web/.env.local','-f',f'{root}/docker-compose.yml','exec','-T','crm-db','psql','-U','postgres','-d','default','-t','-A','-q','-c', sql],
   capture_output=True, text=True
 )
 uid = result.stdout.strip()

@@ -1,5 +1,5 @@
 -- Migration: Vector memory table (pgvector RAG) + rename reminder "fact" → "note"
--- Run: cat migrate-vector-memory.sql | docker exec -i twenty-db-1 psql -U postgres -d default
+-- Run (repo root): cat web/scripts/migrate-vector-memory.sql | docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default
 
 -- Enable pgvector extension (requires superuser)
 CREATE EXTENSION IF NOT EXISTS vector;

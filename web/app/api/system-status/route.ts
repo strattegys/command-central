@@ -107,8 +107,8 @@ const DATA_PLATFORM_ID = "data_platform";
 const DATA_PLATFORM_LABEL = "Data platform";
 
 /**
- * Postgres is what Kanban / human-tasks / packages use. Probing Twenty's web URL
- * often fails in production (UI not reachable from the app host) even when DB is fine.
+ * Postgres is what Kanban / human-tasks / packages use. If CRM_DB_PASSWORD is unset,
+ * we fall back to probing TWENTY_CRM_URL (optional HTTP check when that env is set).
  */
 async function probeCrmPostgres(): Promise<ProbeResult> {
   const password = process.env.CRM_DB_PASSWORD?.trim();

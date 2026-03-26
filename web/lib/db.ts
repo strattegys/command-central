@@ -9,7 +9,7 @@ if (
   process.env.npm_lifecycle_event !== "build"
 ) {
   console.warn(
-    "[db] CRM_DB_PASSWORD is unset — using empty .dev-store JSON. Set CRM_DB_* + CRM_DB_HOST=host.docker.internal in web/.env.local for real CRM data."
+    "[db] CRM_DB_PASSWORD is unset — using empty .dev-store JSON. Set CRM_DB_* in web/.env.local (Docker dev: CRM_DB_HOST=host.docker.internal + tunnel; production compose sets CRM_DB_HOST=crm-db)."
   );
 }
 
@@ -33,11 +33,25 @@ function getPool(): import("pg").Pool {
 
 const SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
 
+let warnedDevStoreInDevelopment = false;
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,
   params?: unknown[]
 ): Promise<T[]> {
-  if (USE_DEV_STORE) return devQuery(sql, params) as Promise<T[]>;
+  if (USE_DEV_STORE) {
+    if (
+      process.env.NODE_ENV === "development" &&
+      !warnedDevStoreInDevelopment
+    ) {
+      warnedDevStoreInDevelopment = true;
+      console.warn(
+        "[db] CRM_DB_PASSWORD is not set — Command Central is using .dev-store JSON, not Postgres. " +
+          "Add CRM_DB_* to web/.env.local (and restart `next dev`) to use the same database as `npm run db:exec`."
+      );
+    }
+    return devQuery(sql, params) as Promise<T[]>;
+  }
 
   const pool = getPool();
   const client = await pool.connect();

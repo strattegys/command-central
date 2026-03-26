@@ -1,5 +1,5 @@
 -- Migration: Create _board table and link campaigns to boards
--- Run: docker exec -i twenty-db-1 psql -U postgres -d default < web/scripts/migrate-boards.sql
+-- Run (repo root): docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default -f - < web/scripts/migrate-boards.sql
 
 SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
 

@@ -25,6 +25,8 @@ services:
       - AGENT_ROOT=/agents
       # Always reach Postgres on the host (SSH tunnel to droplet, or local Postgres). Overrides CRM_DB_HOST=127.0.0.1 in .env.local — that value only works for `npm run dev` on the host, not inside this container.
       - CRM_DB_HOST=host.docker.internal
+      # Default tunnel (crm-db-tunnel.ps1 / .sh) uses local CRM_TUNNEL_LOCAL_PORT or 5433. Overrides web/.env.local CRM_DB_PORT=5432 (production).
+      - CRM_DB_PORT=${CRM_TUNNEL_LOCAL_PORT:-5433}
       # Windows + bind mounts: file watchers often miss saves; force polling so edits hit Next dev
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true

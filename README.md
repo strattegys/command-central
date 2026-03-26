@@ -21,14 +21,13 @@ Next.js (port 3001)          <- Command Central web UI (sole interface)
   |-- Reminders panel
   |-- Notification system
 
-Twenty CRM (port 3000)       <- Contact/company/workflow data (Docker)
-RainbowBot (port 18792)      <- Standalone Python server (systemd)
-Nginx                        <- TLS termination, reverse proxy
+PostgreSQL (`crm-db`)        <- CRM data in the same Compose stack as the web app
+Caddy                        <- TLS termination, reverse proxy (production)
 ```
 
 **Server**: DigitalOcean droplet at `137.184.187.233`
 **Domain**: `stratt-central.b2bcontentartist.com`
-**Process manager**: PM2 (`command-central`)
+**Containers**: Docker Compose (`web`, `crm-db`, `caddy`)
 
 ## Directory Structure
 
@@ -40,10 +39,10 @@ web/                  <- Next.js app (the main project)
   lib/                <- Agent config, tools, cron, heartbeat
   public/             <- Static assets, avatars, sounds
 tools/                <- Server-side CRM/LinkedIn shell scripts
-scripts/              <- Deployment scripts; setup-crm-shared-network.sh (prod Option A)
+scripts/              <- Deployment scripts; migrate-crm-postgres-from-legacy-container.sh (one-time DB cutover)
   deploy-web.sh       <- Manual fallback deploy
 docs/                 <- Historical migration docs
-docker-compose.yml    <- Production stack (Caddy + Next.js)
+docker-compose.yml    <- Production stack (Caddy + Next.js + crm-db Postgres)
 docker-compose.dev.yml <- Local dev stack (Docker)
 Caddyfile             <- Reverse proxy config
 ```
@@ -92,9 +91,9 @@ Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.
 
 **Local dev (Docker on your PC)**
 
-1. Add **`CRM_DB_PASSWORD`** (and **`CRM_DB_PORT`**) to **`web/.env.local`**. See [`web/.env.local.example`](web/.env.local.example).
-2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** sets **`CRM_DB_HOST=host.docker.internal`** so the dev container reaches Postgres on your machine.
-3. **SSH tunnel** to Postgres on the droplet (port **5433** avoids local clashes):
+1. Add **`CRM_DB_PASSWORD`** to **`web/.env.local`** (and keep **`CRM_DB_PORT=5432`** if you share the file with production — Docker dev overrides the port). See [`web/.env.local.example`](web/.env.local.example).
+2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** sets **`CRM_DB_HOST=host.docker.internal`** and **`CRM_DB_PORT=${CRM_TUNNEL_LOCAL_PORT:-5433}`** so the dev container hits your tunnel, not production’s **5432**.
+3. **SSH tunnel** to **`localhost:5432` on the droplet** (production **`crm-db`** publishes **`127.0.0.1:5432`** for this). Local port **5433** avoids clashes:
 
    ```bash
    # Tunnel scripts bind 0.0.0.0:5433 so Docker Desktop can reach Postgres via host.docker.internal
@@ -103,34 +102,25 @@ Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.
 
    **Scripts:** PowerShell `scripts\crm-db-tunnel.ps1` or Git Bash `scripts/crm-db-tunnel.sh` (default **`0.0.0.0:5433`**; set **`CRM_TUNNEL_BIND=127.0.0.1`** for loopback only). Auto-detects `~/.ssh/` keys; override with **`SSH_IDENTITY_FILE`**.
 
-   In **`.env.local`**: **`CRM_DB_PORT=5433`**, **`CRM_DB_PASSWORD`**, and either **`CRM_DB_HOST=host.docker.internal`** (matches compose; use with **Docker**) or rely on compose’s override. **`CRM_DB_HOST=127.0.0.1`** is only for **`npm run dev` on the host** (no Docker), not inside the dev container.
+   You do **not** need **`CRM_DB_PORT=5433`** in **`.env.local`** for Docker dev — compose sets it. **`CRM_DB_HOST=127.0.0.1`** + **`CRM_DB_PORT=5433`** is for **`npm run dev` on the host** (no Docker) with the same tunnel.
 
 4. With the tunnel running, verify from your PC: **`cd web && npm run check-crm-db`**.
 
 5. Recreate the dev stack: `docker compose -f docker-compose.dev.yml up -d --force-recreate`
 
-**Production (droplet) — shared Docker network (Option A, default)**
+**Production (droplet) — CRM Postgres in Compose**
 
-Twenty/CRM Postgres often runs **only inside Docker** (not published on the host). Then **`CRM_DB_HOST=host.docker.internal`** hits **`172.17.0.1:5432`** and fails with **ECONNREFUSED**. **Option A** puts Command Central’s `web` container on the same user-defined network as Postgres.
+CRM data lives in the **`crm-db`** service in **`docker-compose.yml`** (same Docker network as **`web`** — no manual `docker network connect`, no dependency on a separate Twenty stack).
 
-1. SSH to the droplet and run **[`scripts/setup-crm-shared-network.sh`](scripts/setup-crm-shared-network.sh)** from the repo (prints exact next steps):
+1. **`/opt/agent-tim/web/.env.local`** must set **`CRM_DB_PASSWORD`** (and **`CRM_DB_NAME`** / **`CRM_DB_USER`** if not `default` / `postgres`). Compose reads these for Postgres init and for the app.
 
-   ```bash
-   cd /opt/agent-tim && git pull && bash scripts/setup-crm-shared-network.sh
-   ```
+2. Deploy (CI does this): **`docker compose --env-file web/.env.local -f docker-compose.yml up -d`**
 
-2. **`docker network connect crm_shared <postgres_container_name>`** (name from `docker ps`).
+3. **Cutover from an old container** (e.g. legacy **`twenty-db-1`**): after pulling code, run **`bash scripts/migrate-crm-postgres-from-legacy-container.sh`** on the server (see script header). Prefer stopping **`web`** first to avoid dual-writes.
 
-3. In **`/opt/agent-tim/web/.env.local`**: **`CRM_DB_HOST=<postgres_container_name>`**, **`CRM_DB_PORT=5432`**, correct **`CRM_DB_NAME`** / user / password. Verify DB with:
+4. Admin shell: **`docker compose --env-file web/.env.local -f docker-compose.yml exec crm-db psql -U postgres -d default`**
 
-   `docker exec -it <postgres_container_name> psql -U postgres -d default -c 'select 1'`
-
-4. Redeploy: **`docker compose -f docker-compose.yml -f docker-compose.crm-network.yml up -d`**.  
-   If the **`crm_shared`** network exists, **GitHub Actions** and **[`scripts/deploy-web.sh`](scripts/deploy-web.sh)** use that overlay automatically.
-
-See **[`docker-compose.crm-network.yml`](docker-compose.crm-network.yml)** for details.
-
-**Alternative (Option B):** publish Postgres **`ports: ["5432:5432"]`** on the host and keep **`CRM_DB_HOST=host.docker.internal`** — only if you accept host-bound 5432.
+**Note:** **`crm-db`** publishes **`127.0.0.1:5432`** on the droplet (not on the public interface) so **SSH tunnel** + Docker dev work. From the internet the DB is still not exposed. **`docker compose exec crm-db psql`** works for admin on the server.
 
 **Which agent has Kanban?** In this codebase, **Suzi** has **no** Kanban tab (`workflowTypes` is empty). Boards are tied to agents that own workflows — e.g. **Tim** (LinkedIn outreach), **Scout** (research pipeline), **Ghost** (content pipeline), **Marni** (content distribution). Open **Tim** (or the agent that matches your workflow) and use the **pipeline / Kanban** icon, or **`/kanban`**.
 
@@ -141,7 +131,7 @@ See **[`docker-compose.crm-network.yml`](docker-compose.crm-network.yml)** for d
 
 ## Key Integrations
 
-- **Twenty CRM** -- Contact management, workflows, notes (PostgreSQL via Docker)
+- **CRM database** -- Kanban, workflows, packages, human-tasks (PostgreSQL service **`crm-db`** in Compose)
 - **LinkedIn (Unipile)** -- Message sync, connection polling, inbound webhooks. The Next.js app reads **`UNIPILE_API_KEY`**, **`UNIPILE_DSN`** (host:port, e.g. `api32.unipile.com:16299`), and **`UNIPILE_ACCOUNT_ID`** from **`web/.env.local`** (production Docker already uses that file via `env_file`). Without them, warm-outreach enrichment shows “Unipile is not configured”. Restart **`web`** after editing.
 - **Google Gemini** -- LLM for all agents
 - **NextAuth** -- Authentication (credentials provider)
