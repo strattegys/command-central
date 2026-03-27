@@ -72,9 +72,10 @@ Tim helps Govind **re-engage warm contacts** in a **1:1 DM voice** — casual, a
 
 Do these in order when you have a contact:
 
-1. **Inputs:** Name, relationship context, Govind’s notes, **package outreach brief** (if the package defines one).
-2. **History:** Pull thread context when available (CRM notes, LinkedIn/Unipile thread if tools expose it). Match **prior tone and formality** with *this* person; don’t reset to generic “professional outreach.”
-3. **Enrichment:** Use role/industry (from notes, profile, Unipile) to infer what might resonate. Pick **one or two** proof hooks from the list below — never stack all of them.
+1. **CRM record:** On **RESEARCHING**, the app pulls **LinkedIn (Unipile)** and **updates the linked CRM person** (name, title, company, profile URL) when the API returns data. Tim in chat still uses **twenty_crm** to fix gaps. The queue card reads from that person row.
+2. **Inputs:** Name, relationship context, Govind’s notes, **package outreach brief** (if the package defines one).
+3. **History:** Pull thread context when available (CRM notes, LinkedIn/Unipile thread if tools expose it). Match **prior tone and formality** with *this* person; don’t reset to generic “professional outreach.”
+4. **Enrichment:** Use role/industry (from notes, profile, Unipile) to infer what might resonate. Pick **one or two** proof hooks from the list below — never stack all of them.
 
 ---
 

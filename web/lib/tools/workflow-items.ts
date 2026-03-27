@@ -6,12 +6,13 @@ const tool: ToolModule = {
     displayName: "Workflow Items",
     category: "internal",
     description:
-      "Add, move, and list items in workflows. Enables cross-agent pipeline handoffs (e.g., Scout adds targets to Tim's outreach).",
+      "Add, move, and list workflow items; update CRM artifact markdown (drafts shown in the right panel). Cross-agent handoffs (e.g., Scout → Tim outreach).",
     operations: [
       "add-person-to-workflow",
       "add-content-to-workflow",
       "list-items",
       "move-item",
+      "get-workflow-artifact",
       "update-workflow-artifact",
     ],
     requiresApproval: false,
@@ -20,33 +21,36 @@ const tool: ToolModule = {
   declaration: {
     name: "workflow_items",
     description:
-      "Manage items in workflows — add people or content, list items, move between stages. " +
-      "Commands: " +
-      "add-person-to-workflow (arg1=workflowId, arg2=personId, arg3=stage [optional, defaults to first stage]), " +
-      "add-content-to-workflow (arg1=workflowId, arg2=title, arg3=description, arg4=contentType [article|post|email], arg5=stage [optional]), " +
-      "list-items (arg1=workflowId, arg2=stage [optional filter]), " +
-      "move-item (arg1=itemId, arg2=newStage).",
+      "Manage workflow items and artifact bodies. " +
+      "add-person-to-workflow: arg1=workflowId, arg2=personId, arg3=stage optional (else first board stage). " +
+      "add-content-to-workflow: arg1=workflowId, arg2=title, arg3=description, arg4=contentType (article|post|email), arg5=stage optional. " +
+      "list-items: arg1=workflowId, arg2=stage filter optional. " +
+      "move-item: arg1=workflow item id, arg2=newStage (board key, typically UPPERCASE). " +
+      "get-workflow-artifact: arg1=workflow item id, arg2=artifact stage (UPPERCASE) — returns current markdown so you can edit it before saving. " +
+      "update-workflow-artifact: arg1=workflow item id, arg2=stage (UPPERCASE), arg3=full markdown (some models use key `artifact` for the body — same as arg3). **Tim outreach:** for MESSAGE_DRAFT / REPLY_DRAFT, arg3 is usually the **entire** outbound message when Govind wants that text sent. " +
+      "**Ghost / content pipeline (CAMPAIGN_SPEC, REVIEW, DRAFT_PUBLISHED, DRAFTING, IDEA artifacts):** arg3 must be the **full document after your edits** — first call **get-workflow-artifact**, merge Govind’s change requests into that text, and never replace the whole spec with only his short chat line unless he explicitly asks to scrap and rewrite everything.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item, update-workflow-artifact",
+            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item, get-workflow-artifact, update-workflow-artifact",
         },
         arg1: {
           type: "string",
-          description: "First arg: workflowId (add/list) or itemId (move)",
+          description:
+            "workflowId for add-person, add-content, list-items; workflow item id for move-item, get-workflow-artifact, and update-workflow-artifact",
         },
         arg2: {
           type: "string",
           description:
-            "Second arg: personId (add-person), title (add-content), stage filter (list-items), or newStage (move-item)",
+            "personId (add-person), title (add-content), stage filter (list-items), newStage (move-item), or artifact stage (get-workflow-artifact / update-workflow-artifact, UPPERCASE)",
         },
         arg3: {
           type: "string",
           description:
-            "Third arg: stage (add-person), description (add-content), or full markdown body (update-workflow-artifact)",
+            "optional initial stage (add-person), description/body (add-content), or full markdown (update-workflow-artifact — required; not used for get-workflow-artifact)",
         },
         arg4: {
           type: "string",
@@ -286,14 +290,55 @@ const tool: ToolModule = {
       return `Item ${args.arg1} moved to stage ${newStage}`;
     }
 
+    // ─── get-workflow-artifact ───────────────────────────────────
+    if (cmd === "get-workflow-artifact") {
+      const ax = args as Record<string, string>;
+      const itemId = (args.arg1 ?? ax.item_id ?? ax.workflowItemId ?? ax.workflow_item_id)?.trim();
+      const stageRaw = (args.arg2 ?? ax.stage)?.trim();
+      if (!itemId) return "Error: arg1 (workflowItemId) is required";
+      if (!stageRaw) return "Error: arg2 (stage, e.g. CAMPAIGN_SPEC) is required";
+
+      const stageNorm = stageRaw.toUpperCase();
+      const rows = await dbQuery(
+        `SELECT content, stage, name, "createdAt"::text AS ca
+         FROM "_artifact"
+         WHERE "workflowItemId"::text = $1 AND UPPER(TRIM(stage)) = $2 AND "deletedAt" IS NULL
+         ORDER BY "createdAt" DESC
+         LIMIT 1`,
+        [itemId, stageNorm]
+      );
+      if (rows.length === 0) {
+        return `No artifact for workflow item ${itemId.slice(0, 8)}… at stage ${stageNorm}.`;
+      }
+      const r = rows[0] as Record<string, unknown>;
+      const body = String(r.content ?? "");
+      const header = `Stage ${r.stage} (${r.name}) — ${r.ca}\n\n---\n\n`;
+      const max = 120_000;
+      if (body.length > max) {
+        return `${header}${body.slice(0, max)}\n\n… [truncated ${body.length - max} chars; ask to narrow or edit in sections]`;
+      }
+      return `${header}${body}`;
+    }
+
     // ─── update-workflow-artifact ────────────────────────────────
     if (cmd === "update-workflow-artifact") {
-      if (!args.arg1) return "Error: arg1 (workflowItemId) is required";
-      if (!args.arg2) return "Error: arg2 (stage, e.g. MESSAGE_DRAFT) is required";
-      if (args.arg3 === undefined || args.arg3 === "")
+      const ax = args as Record<string, string>;
+      const itemId = (args.arg1 ?? ax.item_id ?? ax.workflowItemId ?? ax.workflow_item_id)?.trim();
+      const stageRaw = (args.arg2 ?? ax.stage)?.trim();
+      const newBody =
+        args.arg3 ??
+        ax.artifact ??
+        ax.content ??
+        ax.markdown ??
+        ax.body ??
+        ax.text ??
+        ax.new_content;
+      if (!itemId) return "Error: arg1 (workflowItemId) is required";
+      if (!stageRaw) return "Error: arg2 (stage, e.g. MESSAGE_DRAFT) is required";
+      if (newBody === undefined || newBody === "")
         return "Error: arg3 (new markdown content) is required";
 
-      const stageNorm = args.arg2.trim().toUpperCase();
+      const stageNorm = stageRaw.toUpperCase();
       const updated = await dbQuery(
         `UPDATE "_artifact" AS a SET content = $1, "updatedAt" = NOW()
          FROM (
@@ -304,15 +349,15 @@ const tool: ToolModule = {
          ) AS sub
          WHERE a.id = sub.id
          RETURNING a.id`,
-        [args.arg3, args.arg1.trim(), stageNorm]
+        [newBody, itemId, stageNorm]
       );
       if (updated.length === 0) {
-        return `No artifact found for workflow item ${args.arg1.slice(0, 8)}… at stage ${stageNorm} (create one first or check stage spelling).`;
+        return `No artifact found for workflow item ${itemId.slice(0, 8)}… at stage ${stageNorm} (create one first or check stage spelling).`;
       }
       return `Updated artifact ${(updated[0] as Record<string, unknown>).id} (${stageNorm}) for workflow item ${args.arg1.slice(0, 8)}…`;
     }
 
-    return "Unknown workflow_items command. Use: add-person-to-workflow, add-content-to-workflow, list-items, move-item, update-workflow-artifact";
+    return "Unknown workflow_items command. Use: add-person-to-workflow, add-content-to-workflow, list-items, move-item, get-workflow-artifact, update-workflow-artifact";
   },
 };
 

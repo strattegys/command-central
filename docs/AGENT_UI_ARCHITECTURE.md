@@ -4,11 +4,11 @@ This document describes the **consistent UX model** for every agent in the main 
 
 ## Three layers
 
-Each agent uses the same structural stack:
+Each agent uses the same structural stack in the **right column**:
 
-1. **Agent header** (top of the right column)  
-2. **Information panel** (optional entry via header)  
-3. **Work panel** (primary operational UI; may contain **multiple work tabs**)
+1. **Agent header** (top strip: avatar, name, role, status, shortcuts)
+2. **Content below the header** — either the **information panel** or the **work panel** (mutually exclusive for a given moment)
+3. **Work tabs** (optional **sub-navigation inside the work panel**)
 
 ### 1. Agent header
 
@@ -21,43 +21,44 @@ Each agent uses the same structural stack:
 
 **Optional header controls** (icons to the right of the text):
 
-- Shortcuts that **open a specific work surface** (e.g. board / pipeline icon, Penny’s package dashboard icon).
-- **Agent info** (ⓘ) — opens the information panel.
+- Shortcuts that **open the work panel** on a default or specific work surface (e.g. Tim’s **list** icon, Friday/Penny **grid**, Suzi **calendar**, **kanban** for agents with a pipeline board).
+- **Agent info (ⓘ)** — opens the **information panel** instead of the work panel.
 
-**Principle:** The header is **navigation chrome**, not the main workspace. Prefer putting **secondary or related tools** inside the **work panel as tabs** instead of adding many single-purpose header icons. That keeps “one work area, multiple tabs” obvious.
+**Principle:** The header is **navigation chrome**. The **work panel** is the **whole region directly under the header** while a work shortcut is selected. Prefer adding **work tabs inside that region** instead of multiplying unrelated header icons.
 
 ### 2. Information panel
 
-Opened with the **Agent info** control. Renders `AgentInfoPanel`: longer description, capabilities, connections, avatar, etc. This is the **profile / settings / context** surface, separate from day-to-day operations.
+Opened with **Agent info (ⓘ)**. Renders `AgentInfoPanel`: longer description, capabilities, connections, avatar, etc. This is the **profile / settings / context** surface, separate from operational queues and boards.
 
 ### 3. Work panel
 
-The **default or primary right-hand content** when the user is not on Agent info. This is where **tasks, boards, planners, queues**, and similar UI live.
+The **work panel** is the **space underneath the agent header** when a **work-related header shortcut** is selected (not ⓘ). That includes **all** content in that column below the header: queues, boards, reminders, dashboards, and any **work tabs** row.
 
-**Work tabs (sub-navigation inside the work panel):**
+**Work tabs (inside the work panel):**
 
-- When an agent has **more than one** operational view, implement **tabs inside the work panel** (a slim tab bar under the main agent header), **not** a growing list of unrelated header icons.
+- When an agent needs **more than one** operational view, add a **tab bar inside the work panel** (immediately below the agent header, above the tab’s content).
+- Each tab can have a **different purpose** (e.g. Tim: **Active Work Queue** vs **Pending Work Queue**; Friday: Packages vs Human tasks vs Tools). They are **all part of the same work panel**—only the active tab’s content is shown.
 - Examples:
   - **Penny** — `PennyDashboardPanel`: Package Planner | Package Templates | Workflow Templates
   - **Friday** — `FridayDashboardPanel`: Packages | Human tasks | Tools
-  - **Tim** — `TimAgentPanel`: Message Queue | Pipeline
-  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes (and related sub-views as implemented there)
+  - **Tim** — `TimAgentPanel`: Active Work Queue | Pending Work Queue
+  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes (per implementation)
 
 **Adding a new capability for an agent**
 
 1. If it belongs with existing work, add a **new work tab** inside that agent’s work panel component.
-2. If it is a **new primary surface**, add a `RightPanel` value (or a dedicated work panel wrapper) in `CommandCentralClient.tsx` and wire routing in the main `rightPanel` / `activeAgent` switch.
-3. Only add a **new header icon** when it is a **distinct top-level entry** (e.g. opening the whole work area from Agent info), not for every sub-screen.
+2. If it is a **new top-level surface** (replacing the whole work panel), add a `RightPanel` value in `CommandCentralClient.tsx` and wire routing in the `rightPanel` / `activeAgent` switch.
+3. Add a **new header icon** only when it is a **distinct top-level entry** (e.g. first open to the work panel from Agent info), not for every sub-screen.
 
 ## Reference table (current patterns)
 
-| Agent  | Default work entry (header shortcut) | Work panel component        | Work tabs (examples)                                      |
-|--------|--------------------------------------|-----------------------------|-----------------------------------------------------------|
-| Friday | Packages dashboard (grid icon)      | `FridayDashboardPanel`      | Packages, Human tasks, Tools                              |
-| Penny  | Packages dashboard (grid icon)      | `PennyDashboardPanel`       | Package Planner, Package Templates, Workflow Templates      |
-| Tim    | Board / work icon → Message Queue   | `TimAgentPanel`             | Message Queue, Pipeline                                   |
-| Suzi   | Reminders (calendar icon)           | `SuziRemindersPanel`        | Punch List, Reminders, Notes (per implementation)         |
-| Others | Kanban where `agentHasKanban`       | `KanbanInlinePanel` or info | As needed                                                 |
+| Agent  | Work entry (header shortcut)     | Work panel component        | Work tabs (examples)                                      |
+|--------|----------------------------------|-----------------------------|-----------------------------------------------------------|
+| Friday | Packages dashboard (grid icon) | `FridayDashboardPanel`      | Packages, Human tasks, Tools                              |
+| Penny  | Packages dashboard (grid icon) | `PennyDashboardPanel`       | Package Planner, Package Templates, Workflow Templates    |
+| Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     |
+| Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes (per implementation)       |
+| Others | Kanban where `agentHasKanban`  | `KanbanInlinePanel` or info | As needed                                                 |
 
 ## Key files
 

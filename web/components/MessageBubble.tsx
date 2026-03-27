@@ -12,6 +12,8 @@ interface MessageBubbleProps {
   onReply?: () => void;
   delegatedFrom?: string; // comma-separated agent IDs
   fromAgent?: string;     // inter-agent: who sent this user message
+  /** Agent bubble: show typing dots inside the same styled box (no empty shell + separate loader). */
+  isThinking?: boolean;
 }
 
 /** Convert a hex color to a dark, muted version suitable for a message background */
@@ -37,6 +39,7 @@ export default function MessageBubble({
   onReply,
   delegatedFrom,
   fromAgent,
+  isThinking,
 }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const isUser = role === "user";
@@ -89,11 +92,28 @@ export default function MessageBubble({
               )}
             </div>
           )}
-          <div className="message-markdown">
-            <ReactMarkdown>{text}</ReactMarkdown>
-          </div>
+          {isThinking ? (
+            <div className="flex items-center gap-1.5 py-1" aria-label="Thinking">
+              <div
+                className="w-2 h-2 rounded-full animate-bounce [animation-delay:0ms]"
+                style={{ backgroundColor: agentColor, opacity: 0.85 }}
+              />
+              <div
+                className="w-2 h-2 rounded-full animate-bounce [animation-delay:150ms]"
+                style={{ backgroundColor: agentColor, opacity: 0.85 }}
+              />
+              <div
+                className="w-2 h-2 rounded-full animate-bounce [animation-delay:300ms]"
+                style={{ backgroundColor: agentColor, opacity: 0.85 }}
+              />
+            </div>
+          ) : (
+            <div className="message-markdown">
+              <ReactMarkdown>{text}</ReactMarkdown>
+            </div>
+          )}
           <div className="flex items-center justify-end gap-2 mt-1">
-            {onReply && (
+            {onReply && !isThinking && (
               <button
                 onClick={onReply}
                 className={`p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
@@ -105,7 +125,9 @@ export default function MessageBubble({
                 </svg>
               </button>
             )}
-            <span className="text-[11px] text-[var(--text-tertiary)]">{time}</span>
+            {!isThinking && (
+              <span className="text-[11px] text-[var(--text-tertiary)]">{time}</span>
+            )}
           </div>
         </div>
       </div>

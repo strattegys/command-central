@@ -8,6 +8,7 @@ import {
   workflowTypeFromSpec,
   resolveWorkflowRegistryId,
 } from "@/lib/workflow-spec";
+import { stripUseFakeDataWhenPackageNotInTesting } from "@/lib/package-use-fake-data";
 
 /**
  * Packages API — CRUD for service packages.
@@ -223,6 +224,53 @@ function isMissingPackageNumberColumn(error: unknown): boolean {
   return /packageNumber/i.test(msg) && (/does not exist/i.test(msg) || /column/i.test(msg));
 }
 
+/** Titles that track the package / template default — safe to rewrite when the package is renamed. */
+function genericContentTitlesForPackageRename(
+  oldPackageName: string,
+  templateId: string
+): string[] {
+  const out = new Set<string>();
+  const on = oldPackageName.trim();
+  if (on) {
+    out.add(on);
+    out.add(`${on} — Draft`);
+  }
+  const tmpl = PACKAGE_TEMPLATES[templateId];
+  for (const d of tmpl?.deliverables ?? []) {
+    out.add(`${d.label} — Draft`);
+  }
+  return [...out];
+}
+
+async function syncLinkedContentTitlesAfterPackageRename(
+  packageId: string,
+  newPackageName: string,
+  oldPackageName: string,
+  templateId: string
+): Promise<void> {
+  const oldTrim = oldPackageName.trim();
+  const newTrim = newPackageName.trim();
+  if (!newTrim || oldTrim === newTrim) return;
+
+  const patterns = genericContentTitlesForPackageRename(oldPackageName, templateId);
+  if (patterns.length === 0) return;
+
+  const newTitle = `${newTrim} — Draft`;
+  await query(
+    `UPDATE "_content_item" AS ci
+     SET title = $1, "updatedAt" = NOW()
+     FROM "_workflow_item" AS wi
+     INNER JOIN "_workflow" AS w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+     WHERE w."packageId" = $2::uuid
+       AND wi."sourceType" = 'content'
+       AND wi."deletedAt" IS NULL
+       AND ci.id = wi."sourceId"
+       AND ci."deletedAt" IS NULL
+       AND ci.title = ANY($3::text[])`,
+    [newTitle, packageId, patterns]
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     const stage = req.nextUrl.searchParams.get("stage");
@@ -390,6 +438,29 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
+    let renameSync: { oldName: string; templateId: string; newName: string } | null = null;
+    const nameTrimmed =
+      typeof name === "string" ? (name.trim() === "" ? null : name.trim()) : undefined;
+    if (name !== undefined && typeof name === "string" && nameTrimmed === null) {
+      return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
+    }
+    if (nameTrimmed != null) {
+      const prevRows = (await query(
+        `SELECT name, "templateId" FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [id]
+      )) as { name: string; templateId: string }[];
+      if (prevRows.length > 0) {
+        const oldName = String(prevRows[0].name ?? "");
+        if (oldName.trim() !== nameTrimmed) {
+          renameSync = {
+            oldName,
+            templateId: String(prevRows[0].templateId ?? ""),
+            newName: nameTrimmed,
+          };
+        }
+      }
+    }
+
     const sets: string[] = ['"updatedAt" = NOW()'];
     const params: unknown[] = [];
 
@@ -409,8 +480,8 @@ export async function PATCH(req: NextRequest) {
       params.push(JSON.stringify(spec));
       sets.push(`spec = COALESCE(spec, '{}'::jsonb) || $${params.length}::jsonb`);
     }
-    if (name) {
-      params.push(name);
+    if (nameTrimmed != null) {
+      params.push(nameTrimmed);
       sets.push(`name = $${params.length}`);
     }
 
@@ -419,6 +490,19 @@ export async function PATCH(req: NextRequest) {
       `UPDATE "_package" SET ${sets.join(", ")} WHERE id = $${params.length} AND "deletedAt" IS NULL`,
       params
     );
+
+    if (renameSync) {
+      await syncLinkedContentTitlesAfterPackageRename(
+        id,
+        renameSync.newName,
+        renameSync.oldName,
+        renameSync.templateId
+      );
+    }
+
+    if (stage) {
+      await stripUseFakeDataWhenPackageNotInTesting(id, stage.toUpperCase());
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -8,10 +8,11 @@ import type { ChatStreamExtraOptions } from "@/lib/chat-stream-options";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, agent, workQueueContext } = body as {
+    const { message, agent, workQueueContext, uiContext } = body as {
       message?: string;
       agent?: string;
       workQueueContext?: string;
+      uiContext?: string;
     };
     const agentId = agent || "tim";
 
@@ -23,10 +24,11 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getAgentConfig(agentId);
+    const tim = typeof workQueueContext === "string" ? workQueueContext.trim() : "";
+    const ui = typeof uiContext === "string" ? uiContext.trim() : "";
+    const mergedContext = [tim, ui].filter(Boolean).join("\n\n---\n\n").slice(0, 12_000);
     const extra: ChatStreamExtraOptions | undefined =
-      typeof workQueueContext === "string" && workQueueContext.trim()
-        ? { workQueueContext: workQueueContext.trim().slice(0, 12000) }
-        : undefined;
+      mergedContext.length > 0 ? { workQueueContext: mergedContext } : undefined;
 
     const chatFn =
       config.provider === "anthropic" ? chatStreamAnthropic :

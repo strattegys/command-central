@@ -25,18 +25,26 @@ interface FridayDashboardPanelProps {
   pendingTaskCount?: number;
   /** When opening from ?panel=tasks (maps to dashboard + this tab). */
   initialWorkTab?: Tab;
+  /** Chat UI: which dashboard tab is active (including initial mount). */
+  onDashboardTabChange?: (tab: Tab) => void;
 }
 
 export default function FridayDashboardPanel({
   onSwitchToAgent,
   pendingTaskCount = 0,
   initialWorkTab,
+  onDashboardTabChange,
 }: FridayDashboardPanelProps) {
   const [tab, setTab] = useState<Tab>(() =>
     initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "packages"
       ? initialWorkTab
       : "packages"
   );
+
+  useEffect(() => {
+    onDashboardTabChange?.(tab);
+  }, [tab, onDashboardTabChange]);
+
   const [packages, setPackages] = useState<FridayPackageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);

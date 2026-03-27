@@ -7,7 +7,7 @@ const tool: ToolModule = {
     displayName: "Notes",
     category: "internal",
     description:
-      "Manage reference notes for the user. Store and retrieve personal notes, facts, preferences, and reference information.",
+      "Suzi Notes tab — user-visible reference notes (facts, preferences, snippets). Separate from reminders (scheduled) and punch_list (tasks).",
     operations: ["list", "add", "update", "delete", "search"],
     requiresApproval: false,
   },
@@ -15,7 +15,7 @@ const tool: ToolModule = {
   declaration: {
     name: "notes",
     description:
-      "Manage reference notes for the user. These are user-facing notes that Govind can browse and search — NOT your internal memory. Each note has a persistent numeric ID (e.g. #5001, #5002). Commands: 'list' (all notes, optional tag filter), 'add' (create new note), 'update' (modify by note_number), 'delete' (remove by note_number), 'search' (find by keyword). ALWAYS use this tool — never pretend to add notes without calling it.",
+      "The **only** tool for durable reference notes shown in Suzi's **Notes** work tab (not the reminders tool). Govind browses and searches these in the UI — this is NOT vector/memory tool. Each note has a persistent #number (e.g. #5001). Commands: list (optional tag filter), add, update (note_number), delete (note_number), search. For birthdays, due dates, or recurring pings use **reminders**. For task cards use **punch_list**. Never claim you saved a note without calling this tool.",
     parameters: {
       type: "object" as const,
       properties: {

@@ -1,6 +1,9 @@
 /** Optional extras for one-shot streaming turns (not persisted to session). */
 export type ChatStreamExtraOptions = {
-  /** Prepended into system prompt for this request only (e.g. Tim work queue selection). */
+  /**
+   * Prepended into the system prompt for this request only.
+   * The stream API may merge Tim/Ghost queue context and lightweight `uiContext` here before calling providers.
+   */
   workQueueContext?: string;
 };
 

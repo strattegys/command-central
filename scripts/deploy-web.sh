@@ -91,6 +91,16 @@ $DC build --no-cache web
 echo "  Starting containers..."
 $DC up -d
 
+for i in $(seq 1 90); do
+  if $DC exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+echo "  Ensuring vector memory (pgvector + _memory)..."
+$DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+  < web/scripts/migrate-vector-memory.sql
+
 echo "  Waiting for server to start..."
 sleep 8
 

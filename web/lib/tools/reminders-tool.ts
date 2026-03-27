@@ -13,7 +13,7 @@ const tool: ToolModule = {
     displayName: "Reminders",
     category: "internal",
     description:
-      "Track birthdays, holidays, recurring events, and tasks. Suzi checks due reminders every minute via heartbeat.",
+      "Time-based reminders (birthdays, holidays, recurring, one-time due). Suzi checks due items via heartbeat. Reference notes live in the notes tool / Notes tab — not here.",
     operations: ["list", "search", "add", "update", "delete", "upcoming"],
     requiresApproval: false,
   },
@@ -21,7 +21,7 @@ const tool: ToolModule = {
   declaration: {
     name: "reminders",
     description:
-      "Manage reminders, important dates, and notes. Use this to track birthdays, holidays, recurring events, one-time tasks, and reference notes for the user. Commands: 'list' (optional category filter), 'search' (find by keyword), 'add' (create new), 'update' (modify existing), 'delete' (remove), 'upcoming' (next 10 due). Categories: birthday, holiday, recurring, one-time, note. Recurrence: yearly, monthly, weekly, daily. Notes are user-facing reference items (e.g. 'Elle likes purple', 'wifi password is ...').",
+      "Scheduled and due-date reminders only: birthdays, holidays, recurring events, one-time tasks with a when. Commands: list (optional category filter), search, add, update, delete, upcoming. Categories for new items: birthday, holiday, recurring, one-time. Recurrence: yearly, monthly, weekly, daily. For arbitrary reference facts, preferences, or snippets without a schedule, use the **notes** tool (Notes tab) — do not use this tool for that. Legacy DB rows may still have category `note`; prefer **notes** tool for new reference content.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -40,7 +40,7 @@ const tool: ToolModule = {
         category: {
           type: "string",
           description:
-            "birthday, holiday, recurring, one-time, or note (for add/update/list filter)",
+            "For add: birthday | holiday | recurring | one-time. For list filter: same, or note for legacy rows only. New reference text → notes tool.",
         },
         date: {
           type: "string",
@@ -99,7 +99,7 @@ const tool: ToolModule = {
     if (cmd === "add") {
       if (!args.title) return "Error: title is required";
       if (!args.category)
-        return "Error: category is required (birthday, holiday, recurring, one-time, fact)";
+        return "Error: category is required: birthday, holiday, recurring, or one-time (use notes tool for reference snippets without a due date)";
 
       let dateStr: string | undefined = args.date;
       if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {

@@ -13,7 +13,7 @@ interface KanbanInlinePanelProps {
   agentId?: string;
   /** Tim pipeline: browse-only, no item detail or workflow edits */
   readOnly?: boolean;
-  /** Inside TimAgentPanel — hide duplicate "Pipeline" title (tab already shows Pipeline) */
+  /** Reserved for embedded kanban layouts (Tim uses work queues instead of inline pipeline). */
   embeddedInTimTabs?: boolean;
 }
 

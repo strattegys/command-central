@@ -41,6 +41,7 @@ interface StatusRailProps {
   pendingTaskCount: number;
   testingTaskCount: number;
   timMessagingTaskCount?: number;
+  ghostContentTaskCount?: number;
 }
 
 function formatAlertTime(ts: string) {
@@ -71,6 +72,7 @@ export default function StatusRail({
   pendingTaskCount,
   testingTaskCount,
   timMessagingTaskCount = 0,
+  ghostContentTaskCount = 0,
 }: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
@@ -166,12 +168,17 @@ export default function StatusRail({
               const showFridayTaskCount = a.id === "friday" && pendingTaskCount > 0;
               const warnPenny = a.id === "penny" && testingTaskCount > 0;
               const warnTim = a.id === "tim" && timMessagingTaskCount > 0;
+              const warnGhost = a.id === "ghost" && ghostContentTaskCount > 0;
               return (
                 <li key={a.id} className="flex items-center gap-1.5 min-w-0">
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                      background: !a.online ? "#555" : warnPenny || warnTim ? "#F59E0B" : "#1D9E75",
+                      background: !a.online
+                        ? "#555"
+                        : warnPenny || warnTim || warnGhost
+                          ? "#F59E0B"
+                          : "#1D9E75",
                     }}
                   />
                   <span className="truncate text-[var(--text-secondary)]">{a.name}</span>
@@ -188,6 +195,11 @@ export default function StatusRail({
                   {warnTim && (
                     <span className="text-[#F59E0B] shrink-0" title="Tim work queue (open tasks)">
                       {timMessagingTaskCount}
+                    </span>
+                  )}
+                  {warnGhost && (
+                    <span className="text-[#F59E0B] shrink-0" title="Ghost content work queue">
+                      {ghostContentTaskCount}
                     </span>
                   )}
                 </li>

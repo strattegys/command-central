@@ -1,8 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  memo,
+  type ReactNode,
+} from "react";
 import ChatInput from "@/components/ChatInput";
 import ArtifactTabScrollRow from "@/components/shared/ArtifactTabScrollRow";
+import {
+  extractPlainDmFromDraftMarkdown,
+  recomposeWarmLinkedInDmArtifact,
+  splitWarmLinkedInDmArtifact,
+  type WarmDmArtifactSplit,
+} from "@/lib/warm-outreach-draft";
 
 interface Artifact {
   id: string;
@@ -67,8 +80,13 @@ interface ArtifactViewerProps {
   showArtifactChat?: boolean;
   /** Created/stage footer under the document */
   showArtifactFooter?: boolean;
-  /** When set (ms), re-fetch artifacts on an interval — picks up tool-driven DB updates (e.g. Tim editing draft). */
+  /** When set (ms), re-fetch artifacts on an interval — picks up tool-driven DB updates (e.g. Tim editing draft). Paused while editing or saving. */
   pollArtifactsMs?: number;
+  /**
+   * Stages (e.g. MESSAGE_DRAFT, REPLY_DRAFT) where the editor shows only the LinkedIn message body
+   * (enrichment / rationale collapsed; optional “full draft” toggle).
+   */
+  linkedInDmBodyStages?: string[];
   /** When the user switches artifact tabs (or data loads), for Tim work-queue → main chat context. */
   onActiveArtifactChange?: (info: { stage: string; label: string } | null) => void;
   onClose: () => void;
@@ -105,6 +123,7 @@ export default function ArtifactViewer({
   showArtifactChat = true,
   showArtifactFooter = true,
   pollArtifactsMs,
+  linkedInDmBodyStages,
   onActiveArtifactChange,
   onClose,
   headerDetail,
@@ -120,6 +139,9 @@ export default function ArtifactViewer({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showFullLinkedInDraft, setShowFullLinkedInDraft] = useState(false);
+  const warmDmSplitRef = useRef<WarmDmArtifactSplit | null>(null);
+  const blockArtifactPollRef = useRef(false);
 
   // Person mode state
   const [people, setPeople] = useState<PersonItem[]>([]);
@@ -134,7 +156,13 @@ export default function ArtifactViewer({
   useEffect(() => {
     setIsEditing(false);
     setEditContent("");
+    warmDmSplitRef.current = null;
+    setShowFullLinkedInDraft(false);
   }, [activeIdx, workflowItemId, workflowId]);
+
+  useEffect(() => {
+    blockArtifactPollRef.current = isEditing || saving;
+  }, [isEditing, saving]);
 
   // Upload featured image → strattegys, then update frontmatter
   const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,22 +215,35 @@ export default function ArtifactViewer({
   }, [artifacts, activeIdx]);
 
   const handleStartEdit = useCallback(() => {
-    const active = artifacts[activeIdx];
-    if (active) {
-      setEditContent(active.content);
-      setIsEditing(true);
+    const a = artifacts[activeIdx];
+    if (!a) return;
+    const stageU = (a.stage || "").toUpperCase();
+    const wantBody = linkedInDmBodyStages?.some((s) => s.toUpperCase() === stageU);
+    if (wantBody) {
+      const sp = splitWarmLinkedInDmArtifact(a.content);
+      if (sp) {
+        warmDmSplitRef.current = sp;
+        setEditContent(sp.body);
+        setIsEditing(true);
+        return;
+      }
     }
-  }, [artifacts, activeIdx]);
+    warmDmSplitRef.current = null;
+    setEditContent(a.content);
+    setIsEditing(true);
+  }, [artifacts, activeIdx, linkedInDmBodyStages]);
 
   const handleSaveEdit = useCallback(async () => {
-    const active = artifacts[activeIdx];
-    if (!active || saving) return;
+    const a = artifacts[activeIdx];
+    if (!a || saving) return;
+    const split = warmDmSplitRef.current;
+    const nextContent = split ? recomposeWarmLinkedInDmArtifact(split, editContent) : editContent;
     setSaving(true);
     try {
-      const res = await fetch(`/api/crm/artifacts/${active.id}`, {
+      const res = await fetch(`/api/crm/artifacts/${a.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: editContent }),
+        body: JSON.stringify({ content: nextContent }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -210,8 +251,9 @@ export default function ArtifactViewer({
         return;
       }
       setArtifacts((prev) =>
-        prev.map((a, i) => (i === activeIdx ? { ...a, content: editContent } : a))
+        prev.map((art, i) => (i === activeIdx ? { ...art, content: nextContent } : art))
       );
+      warmDmSplitRef.current = null;
       setIsEditing(false);
     } catch {
       alert("Save failed. Check your connection and try again.");
@@ -220,6 +262,7 @@ export default function ArtifactViewer({
   }, [artifacts, activeIdx, editContent, saving]);
 
   const handleCancelEdit = useCallback(() => {
+    warmDmSplitRef.current = null;
     setIsEditing(false);
     setEditContent("");
   }, []);
@@ -326,12 +369,17 @@ export default function ArtifactViewer({
     params.set("workflowItemId", workflowItemId);
     const url = `/api/crm/artifacts?${params}`;
     const tick = () => {
+      if (blockArtifactPollRef.current) return;
       fetch(url, { credentials: "include" })
         .then((r) => r.json())
         .then((data) => {
+          if (blockArtifactPollRef.current) return;
           const arts = sortArtifactsForTabs((data.artifacts || []) as Artifact[]);
           const hold = selectedArtifactIdRef.current;
-          setArtifacts(arts);
+          setArtifacts((prev) => {
+            if (artifactListContentEqual(prev, arts)) return prev;
+            return arts;
+          });
           if (hold) {
             const ni = arts.findIndex((a) => a.id === hold);
             if (ni >= 0) setActiveIdx(ni);
@@ -343,22 +391,63 @@ export default function ArtifactViewer({
     return () => clearInterval(id);
   }, [pollArtifactsMs, workflowItemId, preloaded, usePeopleView]);
 
+  const lastFocusKeyRef = useRef<string>("__init__");
+  useEffect(() => {
+    lastFocusKeyRef.current = "__init__";
+  }, [workflowItemId, workflowId]);
+
   useEffect(() => {
     if (!onActiveArtifactChange) return;
     if (usePeopleView) {
-      onActiveArtifactChange(null);
+      if (lastFocusKeyRef.current !== "__people__") {
+        lastFocusKeyRef.current = "__people__";
+        onActiveArtifactChange(null);
+      }
       return;
     }
     if (loading) return;
     const a = artifacts[activeIdx];
-    if (!a) onActiveArtifactChange(null);
-    else onActiveArtifactChange({ stage: a.stage, label: artifactTabLabel(a) });
+    if (!a) {
+      if (lastFocusKeyRef.current !== "__empty__") {
+        lastFocusKeyRef.current = "__empty__";
+        onActiveArtifactChange(null);
+      }
+      return;
+    }
+    const label = artifactTabLabel(a);
+    const key = `${a.stage}\0${label}`;
+    if (key === lastFocusKeyRef.current) return;
+    lastFocusKeyRef.current = key;
+    onActiveArtifactChange({ stage: a.stage, label });
   }, [onActiveArtifactChange, usePeopleView, loading, artifacts, activeIdx]);
 
   const active = artifacts[activeIdx];
 
+  const linkedInDmSplit =
+    active && linkedInDmBodyStages?.length
+      ? (() => {
+          const u = (active.stage || "").toUpperCase();
+          if (!linkedInDmBodyStages.some((s) => s.toUpperCase() === u)) return null;
+          return splitWarmLinkedInDmArtifact(active.content);
+        })()
+      : null;
+  const showLinkedInMessageFocus = Boolean(linkedInDmSplit);
+  /** Same plain text Unipile send uses (see resolve + extractPlainDmFromDraftMarkdown). */
+  const linkedInPlainSendPreview =
+    showLinkedInMessageFocus && active
+      ? extractPlainDmFromDraftMarkdown(active.content).trim()
+      : "";
+
+  const recomposedDraft =
+    isEditing && warmDmSplitRef.current
+      ? recomposeWarmLinkedInDmArtifact(warmDmSplitRef.current, editContent)
+      : editContent;
+
   const hasUnsavedArtifactEdit =
-    !usePeopleView && isEditing && !!active && editContent !== active.content;
+    !usePeopleView &&
+    isEditing &&
+    !!active &&
+    recomposedDraft !== active.content;
 
   // Person mode: group by stage
   const personStages = usePeopleView ? [...new Set(people.map((p) => p.stage))] : [];
@@ -647,13 +736,44 @@ export default function ArtifactViewer({
                 No artifacts found
               </div>
             ) : isEditing ? (
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full h-full bg-transparent text-[var(--text-primary)] text-sm leading-relaxed border-none outline-none resize-none"
-                style={{ minHeight: "100%" }}
-                autoFocus
-              />
+              <div className="flex flex-col gap-2 min-h-0 h-full">
+                {warmDmSplitRef.current ? (
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] shrink-0">
+                    Edit message only (research block unchanged until you save)
+                  </p>
+                ) : null}
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full flex-1 min-h-[200px] bg-[var(--bg-primary)]/40 text-[var(--text-primary)] text-sm leading-relaxed border border-[var(--border-color)] rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--accent-green)]/50 resize-y"
+                  autoFocus
+                />
+              </div>
+            ) : showLinkedInMessageFocus && linkedInDmSplit ? (
+              <div className="space-y-3 min-h-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                  Exact message sent on LinkedIn (plain text)
+                </p>
+                <div className="text-[var(--text-primary)] text-sm leading-relaxed whitespace-pre-wrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3">
+                  {linkedInPlainSendPreview ||
+                    linkedInDmSplit.body.replace(/\*\*([^*]+)\*\*/g, "$1").trim() ||
+                    "—"}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFullLinkedInDraft((v) => !v)}
+                  className="text-[10px] px-2.5 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-semibold hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                >
+                  {showFullLinkedInDraft
+                    ? "Hide full draft"
+                    : "Show full draft (research, rationale, Tim notes)"}
+                </button>
+                {showFullLinkedInDraft ? (
+                  <div className="prose prose-invert prose-sm max-w-none border-t border-[var(--border-color)] pt-4 opacity-95">
+                    <MarkdownRenderer content={active.content} />
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="prose prose-invert prose-sm max-w-none">
                 <MarkdownRenderer content={active.content} />
@@ -797,19 +917,35 @@ function sortArtifactsForTabs<T extends { createdAt: string }>(list: T[]): T[] {
   );
 }
 
+/** Avoid setArtifacts when poll returns identical bodies — keeps text selection stable. */
+function artifactListContentEqual(a: Artifact[], b: Artifact[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (!y || x.id !== y.id || x.content !== y.content || x.stage !== y.stage) return false;
+  }
+  return true;
+}
+
 /**
  * Simple markdown renderer — converts basic markdown to HTML.
+ * Memoized so parent re-renders (e.g. queue polling) do not rewrite innerHTML and kill copy/select.
  */
-export function MarkdownRenderer({ content }: { content: string }) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({
+  content,
+}: {
+  content: string;
+}) {
   const html = markdownToHtml(content);
   return (
     <div
       dangerouslySetInnerHTML={{ __html: html }}
-      className="text-[13px] leading-relaxed text-[var(--text-primary)]"
+      className="text-[13px] leading-relaxed text-[var(--text-primary)] select-text cursor-text"
       style={{ lineHeight: "1.7" }}
     />
   );
-}
+});
 
 function markdownToHtml(md: string): string {
   let html = md

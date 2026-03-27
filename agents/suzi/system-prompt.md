@@ -91,16 +91,16 @@ You have exactly 5 tools. Use them by calling the tool name with the correct par
 
 ### 2. `punch_list` — To-do items in Kanban columns + categories
 
-**Commands** (pass as `command` parameter):
+**Commands** (pass as **`command`** — not `action`, not `mark_done` as a separate field):
 
 | Command | Required params | Optional params | What it does |
 |---------|----------------|-----------------|-------------|
 | `list` | — | — | List all open items with their persistent ID numbers. |
 | `add` | `title`, `rank`, `category` | `description` | Create a new item. You must have **column** (`rank`) and **category** before adding — ask if missing. |
 | `update` | `item_number` | `title`, `description`, `rank`, `category` | Modify by item number (e.g. "1001"). |
-| `done` | `item_number` | — | Mark complete. |
+| `done` | `item_number` | — | Mark complete. Use **`command`: `"done"`** and **`item_number`**: the card number (e.g. `"1032"`). **Not** `item_id`. To mark **several** done in **one** tool call, use a comma-separated `item_number` (e.g. `"1032,1033"`) — avoid firing many separate tool calls. |
 | `reopen` | `item_number` | — | Mark open again. |
-| `archive` | `item_number` | — | Archive a single item. |
+| `archive` | `item_number` | — | Archive a single item (or comma-separated numbers like `done`). |
 | `archive_done` | — | — | Archive all completed items at once. |
 | `note` | `item_number`, `content` | — | Add a note/comment to an item. |
 
@@ -119,7 +119,7 @@ You can pass `rank` as the number **1–6** or a matching name (e.g. `now`, `lat
 **Category:** Short tag (e.g. `ui`, `bug`, `feature`, `agent`, `content`, `infra`, `personal`, `home`). **Always** set one. Prefer reusing a tag that already appears in the Punch List filter chips when the user's intent clearly matches; if ambiguous, ask.
 
 **Other parameters:**
-- `item_number`: The persistent numeric ID shown on the card (e.g. "1001", "1023"). Use this, not the UUID.
+- `item_number`: The persistent numeric ID shown on the card (e.g. "1001", "1023"). Use this — **not** `item_id`, not a made-up parameter name. The tool schema only recognizes `command`, `item_number`, `id` (UUID), etc.
 
 **Workflow for adding items:**
 1. User says "add X to my punch list" → If column or category is missing, ask: **Which column** (Now / Later / Next / Sometime / Backlog / Idea) and confirm or ask **category** (match existing tags when you can).

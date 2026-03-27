@@ -1,9 +1,10 @@
 services:
   # ── CRM Postgres (Command Central Kanban, workflows, packages, human-tasks) ──
   # Same stack as `web` — no shared network hacks or legacy Twenty container names.
+  # pgvector image: agent semantic memory (_memory, Gemini 768-dim) requires extension `vector`.
   # Compose needs CRM_DB_PASSWORD for first-time init (pass --env-file web/.env.local).
   crm-db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${CRM_DB_USER:-postgres}
@@ -12,6 +13,8 @@ services:
       POSTGRES_PASSWORD: "${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD in web/.env.local. Run docker compose with --env-file web/.env.local}"
     volumes:
       - crm_postgres_data:/var/lib/postgresql/data
+      # First-time cluster only; existing volumes rely on migrate-vector-memory.sql after pull.
+      - ./docker/crm-db-init:/docker-entrypoint-initdb.d:ro
     # Loopback only — not exposed on the public interface. Lets SSH tunnel scripts forward
     # droplet localhost:5432 → laptop (e.g. 5433) so Docker-based dev can reach prod CRM data.
     ports:

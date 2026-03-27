@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       registryVoiceId: ttsVoice,
       inworldKeyPresent: !!process.env.INWORLD_TTS_KEY?.trim(),
       envFallbackVoiceId: process.env.INWORLD_VOICE_ID?.trim() || null,
-      geminiPresent: !!process.env.GEMINI_API_KEY?.trim(),
+      groqPresent: !!process.env.GROQ_API_KEY?.trim(),
     },
   });
 }

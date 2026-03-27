@@ -46,7 +46,7 @@ Use `agent_manager create-agent` to:
 
 ### 4. Handoff
 After provisioning, tell the user what manual steps remain:
-1. **Code registration** — Add the agent to `agent-config.ts`, `config.ts`, and `commands.ts` (do this via Claude Code)
+1. **Code registration** — Add the agent to `agent-config.ts`, `config.ts`, and `commands.ts` (do this in Cursor / your editor and ship via git)
 2. **Slack app** — Create a new Slack app at api.slack.com/apps with Socket Mode, add scopes (`app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write`, `channels:history`, `channels:read`), subscribe to events (`app_mention`, `message.im`), install to workspace
 3. **Environment** — Add `SLACK_<NAME>_BOT_TOKEN` and `SLACK_<NAME>_APP_TOKEN` to the server `.env`
 4. **Deploy** — Push code changes to master (auto-deploys), restart Slack gateway

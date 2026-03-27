@@ -5,8 +5,9 @@ import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
 import SuziNotesPanel from "./SuziNotesPanel";
 import { panelBus } from "@/lib/events";
+import type { SuziWorkSubTab } from "@/lib/suzi-work-panel";
 
-type SubTab = "reminders" | "punchlist" | "notes";
+type SubTab = SuziWorkSubTab;
 
 const FILTERS = [
   "All",
@@ -62,15 +63,19 @@ function getTimeFilterRange(tf: TimeFilter): { start: Date; end: Date } | null {
 
 interface SuziRemindersPanelProps {
   onClose: () => void;
+  /** Notifies parent whenever the work sub-tab changes (including initial mount). */
+  onSubTabChange?: (tab: SubTab) => void;
 }
 
 export default function SuziRemindersPanel({
   onClose,
+  onSubTabChange,
 }: SuziRemindersPanelProps) {
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_panel_subtab");
-      if (saved === "reminders" || saved === "notes") return saved as SubTab;
+      if (saved === "reminders" || saved === "notes" || saved === "punchlist")
+        return saved as SubTab;
     }
     return "punchlist";
   });
@@ -78,6 +83,10 @@ export default function SuziRemindersPanel({
   useEffect(() => {
     localStorage.setItem("suzi_panel_subtab", subTab);
   }, [subTab]);
+
+  useEffect(() => {
+    onSubTabChange?.(subTab);
+  }, [subTab, onSubTabChange]);
 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);

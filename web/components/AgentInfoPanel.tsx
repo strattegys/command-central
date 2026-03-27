@@ -36,7 +36,7 @@ interface VoiceRuntime {
   registryVoiceId: string | null;
   inworldKeyPresent: boolean;
   envFallbackVoiceId: string | null;
-  geminiPresent: boolean;
+  groqPresent: boolean;
 }
 
 interface AgentInfoPanelProps {
@@ -231,9 +231,9 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
                           · env fallback <span className="font-mono">{voiceRuntime.envFallbackVoiceId}</span>
                         </span>
                       ) : null}
-                      {voiceRuntime && !voiceRuntime.geminiPresent ? (
+                      {voiceRuntime && !voiceRuntime.groqPresent ? (
                         <span className="block mt-1 text-[#F59E0B]">
-                          GEMINI_API_KEY unset — long replies use truncation before TTS.
+                          GROQ_API_KEY unset — long replies use truncation before TTS.
                         </span>
                       ) : null}
                     </div>

@@ -3,6 +3,7 @@
  */
 import type { ToolContext } from "./types";
 import { TOOL_REGISTRY } from "./index";
+import { withToolGroundingHint } from "./tool-grounding-hint";
 
 export async function executeTool(
   name: string,
@@ -15,7 +16,8 @@ export async function executeTool(
     if (!tool) return `Unknown tool: ${name}`;
 
     const context: ToolContext = { lastUserMessage, agentId };
-    return await tool.execute(args, context);
+    const raw = await tool.execute(args, context);
+    return withToolGroundingHint(name, raw);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     return `Tool error: ${msg}`;

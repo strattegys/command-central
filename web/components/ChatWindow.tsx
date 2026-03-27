@@ -49,31 +49,43 @@ export default function ChatWindow({
           Send a message to {agentName}
         </div>
       )}
-      {messages.map((msg) => (
-        <MessageBubble
-          key={msg.id}
-          role={msg.role}
-          text={msg.text}
-          timestamp={msg.timestamp}
-          agentName={agentName}
-          agentColor={agentColor}
-          replyTo={msg.replyTo}
-          onReply={onReply ? () => onReply(msg) : undefined}
-          delegatedFrom={msg.delegatedFrom}
-          fromAgent={msg.fromAgent}
-        />
-      ))}
-      {isLoading && (
-        <div className="flex justify-start mb-1">
-          <div className="bg-[var(--bg-tertiary)] rounded-lg px-4 py-3">
-            <div className="flex space-x-1">
-              <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:0ms]" />
-              <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:150ms]" />
-              <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:300ms]" />
+      {messages.map((msg, idx) => {
+        const isLast = idx === messages.length - 1;
+        const thinkingInside =
+          isLoading &&
+          isLast &&
+          msg.role === "model" &&
+          !msg.text.trim();
+        return (
+          <MessageBubble
+            key={msg.id}
+            role={msg.role}
+            text={msg.text}
+            timestamp={msg.timestamp}
+            agentName={agentName}
+            agentColor={agentColor}
+            replyTo={msg.replyTo}
+            onReply={onReply ? () => onReply(msg) : undefined}
+            delegatedFrom={msg.delegatedFrom}
+            fromAgent={msg.fromAgent}
+            isThinking={thinkingInside}
+          />
+        );
+      })}
+      {/* Only before the empty model placeholder mounts (rare); in-flight replies use the agent bubble */}
+      {isLoading &&
+        (messages.length === 0 ||
+          messages[messages.length - 1]?.role !== "model") && (
+          <div className="flex justify-start mb-1">
+            <div className="bg-[var(--bg-tertiary)] rounded-lg px-4 py-3">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:0ms]" />
+                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:150ms]" />
+                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:300ms]" />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       <div ref={bottomRef} />
     </div>
   );

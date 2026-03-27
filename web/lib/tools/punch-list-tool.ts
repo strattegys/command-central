@@ -29,6 +29,9 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
       list: "list",
       add: "add",
       update: "update",
+      move: "update",
+      move_to: "update",
+      move_to_column: "update",
       archive: "archive",
       archive_done: "archive_done",
       note: "note",
@@ -40,6 +43,28 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
     const s = String(idish).replace(/^#/, "").trim();
     if (/^\d+$/.test(s)) args.item_number = s;
     else args.id = s;
+  }
+  const rawCmd = (args.command || "")
+    .toLowerCase()
+    .replace(/-/g, "_")
+    .replace(/\s+/g, "_")
+    .trim();
+  if (rawCmd === "move" || rawCmd === "move_to" || rawCmd === "move_to_column") {
+    args.command = "update";
+  }
+  // "Close out #1043" → models often emit command close_out / close / finish
+  const doneAliases = new Set([
+    "close_out",
+    "closeout",
+    "close",
+    "finish",
+    "resolve",
+    "complete",
+    "mark_done",
+    "mark_as_done",
+  ]);
+  if (doneAliases.has(rawCmd)) {
+    args.command = "done";
   }
   return args;
 }
@@ -67,13 +92,18 @@ const tool: ToolModule = {
 
   declaration: {
     name: "punch_list",
-    description: `Manage the punch list (Kanban columns, not a single priority number). Use parameter command (not "action"): list, add (requires column + category), update, done, reopen, archive, archive_done, note. For item IDs use item_number (not item_id) with the # shown on cards. To mark multiple done in one round-trip, use command done and item_number "1032,1033". ${RANK_HELP} Category is a short tag; match existing tags when possible.`,
+    description: `Manage the punch list (Kanban columns). Use parameter command (not "action"): list, add, update, done, reopen, archive, archive_done, note.
+CRITICAL — Moving an existing card to another column (e.g. "move #1040 to Next"): use command **update** with item_number="1040" and rank="next" (or 1–6). Do **NOT** use **add** when the user names an existing item number — add always creates a NEW # and duplicates work.
+**add** only when creating a brand-new item (needs title, rank, category). **update** to change column (rank), title, description, or category on an existing #.
+**done** (or synonyms **close_out**, **close**, **finish**) marks an item complete — use item_number for the # the user said (e.g. "close out 1043" → command done, item_number=1043). After marking done, do **not** paste the entire punch list unless the user asks; confirm briefly with the item #.
+For item IDs use item_number with the # shown on cards. Batch mark done: command done and item_number "1032,1033". ${RANK_HELP} Category is a short tag for new items.`,
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
-          description: "list, add, update, done, reopen, archive, archive_done, or note",
+          description:
+            "list | add (new item only) | update (move/edit #) | done (mark complete — also: close_out, close, finish) | reopen | archive | archive_done | note",
         },
         title: {
           type: "string",
@@ -85,7 +115,7 @@ const tool: ToolModule = {
         },
         rank: {
           type: "string",
-          description: `Kanban column: 1–6 or name (Now, Later, Next, Sometime, Backlog, Idea). ${RANK_HELP}`,
+          description: `Kanban column for add or update: 1–6 or name (Now, Later, Next, Sometime, Backlog, Idea). Required to move an item: update + item_number + rank. ${RANK_HELP}`,
         },
         category: {
           type: "string",
@@ -132,7 +162,6 @@ const tool: ToolModule = {
             let line = `#${item.itemNumber} [${col}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
             if (item.description) line += ` — ${item.description}`;
             if (latestNote) line += `\n   Latest note: "${latestNote.content}"`;
-            line += ` (id: ${item.id})`;
             return line;
           }
         )
@@ -140,6 +169,14 @@ const tool: ToolModule = {
     }
 
     if (cmd === "add") {
+      const addTokens = itemNumberTokens(args);
+      if (addTokens.length > 0 || (args.item_number && String(args.item_number).trim())) {
+        return (
+          "Error: You passed an item number with command **add**. **add** only creates NEW items. " +
+          "To move or edit an existing card (e.g. #1040 to Next), use command **update** with item_number and rank (e.g. rank=next). " +
+          "Do not create a duplicate item."
+        );
+      }
       if (!args.title) return "Error: title is required";
       if (!args.rank) {
         return `Error: Ask which column this belongs in (${punchListColumnsSummary()}).`;
@@ -157,7 +194,7 @@ const tool: ToolModule = {
         rank,
         category: args.category,
       });
-      return `Punch list item created: #${item.itemNumber} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}] (id: ${item.id})`;
+      return `Punch list item created: #${item.itemNumber} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}]`;
     }
 
     const tokens = itemNumberTokens(args);
@@ -226,26 +263,40 @@ const tool: ToolModule = {
         if (r === null) return `Error: Invalid column "${args.rank}". ${RANK_HELP}`;
         updates.rank = r;
       }
+      if (Object.keys(updates).length === 0) {
+        return "Error: update needs at least one of: rank (column move), title, description, category";
+      }
       await updatePunchListItem(resolvedId, updates);
-      return `Punch list item updated.`;
+      const after = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      if (after) {
+        return `Punch list item #${after.itemNumber} "${after.title}" — now [${punchListColumnLabel(after.rank)}]${after.category ? ` [${after.category}]` : ""}`;
+      }
+      return "Punch list item updated.";
     }
 
     if (cmd === "done") {
       if (!resolvedId) return "Error: id or item_number is required";
+      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
       await updatePunchListItem(resolvedId, { status: "done" });
-      return `Punch list item marked done.`;
+      const num = before?.itemNumber ?? tokens[0] ?? "?";
+      const title = before?.title ? ` "${before.title}"` : "";
+      return `Punch list item #${num}${title} marked done.`;
     }
 
     if (cmd === "reopen") {
       if (!resolvedId) return "Error: id or item_number is required";
+      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
       await updatePunchListItem(resolvedId, { status: "open" });
-      return `Punch list item reopened.`;
+      const num = before?.itemNumber ?? tokens[0] ?? "?";
+      return `Punch list item #${num} reopened.`;
     }
 
     if (cmd === "archive") {
       if (!resolvedId) return "Error: id or item_number is required";
+      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
       await archivePunchListItem(resolvedId);
-      return `Punch list item archived.`;
+      const num = before?.itemNumber ?? tokens[0] ?? "?";
+      return `Punch list item #${num} archived.`;
     }
 
     if (cmd === "archive_done") {
@@ -256,8 +307,10 @@ const tool: ToolModule = {
     if (cmd === "note") {
       if (!resolvedId) return "Error: id or item_number is required";
       if (!args.content) return "Error: content is required for adding a note";
-      const note = await addNote(resolvedId, args.content);
-      return `Note added to punch list item (note id: ${note.id})`;
+      const row = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      await addNote(resolvedId, args.content);
+      const itemNum = row?.itemNumber ?? tokens[0] ?? "?";
+      return `Note added to punch list item #${itemNum}.`;
     }
 
     return "Unknown punch_list command. Use: list, add, update, done, reopen, archive, archive_done, note";

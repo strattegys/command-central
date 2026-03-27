@@ -17,6 +17,7 @@ const tool: ToolModule = {
       "approve-package",
       "list-packages",
       "get-package",
+      "rename-package",
     ],
     requiresApproval: true,
   },
@@ -32,14 +33,15 @@ const tool: ToolModule = {
       "submit-for-approval (arg1=packageId — sets stage to PENDING_APPROVAL), " +
       "approve-package (arg1=packageId — REQUIRES user approval phrase — creates all workflows), " +
       "list-packages (optional arg1=stage filter, arg2=customerId filter), " +
-      "get-package (arg1=packageId — shows package with linked workflows).",
+      "get-package (arg1=packageId — shows package with linked workflows), " +
+      "rename-package (arg1=packageId, arg2=new display name — fixes typos; any stage).",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "Command: list-templates, create-package, customize-package, submit-for-approval, approve-package, list-packages, get-package",
+            "Command: list-templates, create-package, customize-package, submit-for-approval, approve-package, list-packages, get-package, rename-package",
         },
         arg1: {
           type: "string",
@@ -49,7 +51,7 @@ const tool: ToolModule = {
         arg2: {
           type: "string",
           description:
-            "Second arg: package name (create — omit to use template label), JSON spec (customize), or customerId filter (list)",
+            "Second arg: package name (create — omit to use template label), JSON spec (customize), customerId filter (list), or new name (rename-package)",
         },
         arg3: {
           type: "string",
@@ -311,7 +313,27 @@ const tool: ToolModule = {
       return `Package: ${pkg.name}\n${numLine}Template: ${pkg.templateId}\nStage: ${pkg.stage}\nCustomer: ${pkg.customerId || "none"} (${pkg.customerType})\nCreated by: ${pkg.createdBy}\n\nDeliverables:\n${deliverables}\n\nWorkflows:\n${workflows}`;
     }
 
-    return "Unknown package_manager command. Use: list-templates, create-package, customize-package, submit-for-approval, approve-package, list-packages, get-package";
+    // ─── rename-package ──────────────────────────────────────────
+    if (cmd === "rename-package") {
+      if (!args.arg1) return "Error: arg1 (packageId) is required";
+      const newName = args.arg2 && String(args.arg2).trim();
+      if (!newName) return "Error: arg2 (new name) is required";
+
+      const existing = await dbQuery(
+        `SELECT id, name FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [args.arg1]
+      );
+      if (existing.length === 0) return "Error: package not found";
+
+      await dbQuery(
+        `UPDATE "_package" SET name = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        [newName, args.arg1]
+      );
+      const prev = (existing[0] as Record<string, unknown>).name;
+      return `Package renamed: "${prev}" → "${newName}" (id: ${args.arg1})`;
+    }
+
+    return "Unknown package_manager command. Use: list-templates, create-package, customize-package, submit-for-approval, approve-package, list-packages, get-package, rename-package";
   },
 };
 

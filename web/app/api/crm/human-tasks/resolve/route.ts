@@ -18,8 +18,12 @@ import {
 } from "@/lib/warm-outreach-discovery";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS } from "@/lib/warm-outreach-cadence";
-import { applyWarmContactIntakeToPerson } from "@/lib/warm-contact-intake-apply";
+import {
+  applyWarmContactIntakeToPerson,
+  applyUnipileResearchToPerson,
+} from "@/lib/warm-contact-intake-apply";
 import { resolveWorkflowRegistryId } from "@/lib/workflow-spec";
+import { PACKAGE_STAGES_ALLOWING_FAKE_DATA } from "@/lib/package-use-fake-data";
 
 function logTs(message: string): string {
   return `[${new Date().toISOString()}] ${message}`;
@@ -112,17 +116,27 @@ export async function POST(req: NextRequest) {
     const wfTypeId = resolveWorkflowRegistryId(wfTypeRaw || null) ?? "";
     const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
 
-    // Check useFakeData flag from the package
+    // Packaged workflows: fake/template only in DRAFT / PENDING_APPROVAL; ACTIVE+ always real
     let useFakeData = true;
     if (wf.packageId) {
-      const pkgRows = await query<{ spec: { useFakeData?: boolean } }>(
-        `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+      const pkgRows = await query<{ spec: { useFakeData?: boolean }; stage: string }>(
+        `SELECT spec, stage FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
         [wf.packageId]
       );
       if (pkgRows.length > 0) {
-        const pkgSpec = typeof pkgRows[0].spec === "string" ? JSON.parse(pkgRows[0].spec) : pkgRows[0].spec;
-        useFakeData = pkgSpec?.useFakeData !== false; // default true
-        console.log(`[resolve] Package ${wf.packageId} useFakeData raw=${pkgSpec?.useFakeData} resolved=${useFakeData}`);
+        const pkgStage = (pkgRows[0].stage || "").trim().toUpperCase();
+        const pkgSpec =
+          typeof pkgRows[0].spec === "string"
+            ? JSON.parse(pkgRows[0].spec)
+            : pkgRows[0].spec;
+        if (!PACKAGE_STAGES_ALLOWING_FAKE_DATA.has(pkgStage)) {
+          useFakeData = false;
+        } else {
+          useFakeData = pkgSpec?.useFakeData === true;
+        }
+        console.log(
+          `[resolve] Package ${wf.packageId} stage=${pkgStage} useFakeData raw=${pkgSpec?.useFakeData} resolved=${useFakeData}`
+        );
       }
     }
 
@@ -1234,12 +1248,24 @@ async function generateStageArtifact(
     let unipileMarkdown = "";
     let unipileStatus = "";
 
+    const crmSyncLogs: string[] = [];
+
     if (isUnipileConfigured() && linkedinIdentifier) {
       console.log(
         `[warm-outreach] Unipile profile fetch for item=${itemId} identifier=${linkedinIdentifier.slice(0, 64)}`
       );
       const raw = await fetchUnipileLinkedInProfile(linkedinIdentifier);
       unipileMarkdown = formatUnipileProfileMarkdown(raw);
+
+      const wiPerson = await query<{ sourceId: string | null; sourceType: string | null }>(
+        `SELECT "sourceId", "sourceType" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [itemId]
+      );
+      const personId =
+        wiPerson[0]?.sourceType === "person" && wiPerson[0]?.sourceId ? wiPerson[0].sourceId : null;
+      if (personId && raw) {
+        await applyUnipileResearchToPerson(personId, raw, crmSyncLogs);
+      }
     } else if (!linkedinIdentifier) {
       unipileStatus =
         "No LinkedIn profile reference found. Add linkedinLinkPrimaryLinkUrl on the person in Twenty (column person.linkedinLinkPrimaryLinkUrl), or paste a https://www.linkedin.com/in/… URL or ACoA… provider id in Govind's contact notes.";
@@ -1270,6 +1296,11 @@ async function generateStageArtifact(
       synthesis = `## Tim — synthesis (fake data mode)\n\n${buildWarmResearchTail(notes, Boolean(unipileMarkdown.trim()), packageBrief)}`;
     }
 
+    const crmSection =
+      crmSyncLogs.length > 0
+        ? `\n## CRM sync (automatic from LinkedIn)\n\n${crmSyncLogs.map((l) => `- ${l}`).join("\n")}\n`
+        : "";
+
     const content = `# Warm contact — enrichment report
 
 ${linkedinSection}
@@ -1279,7 +1310,7 @@ ${notesBlock}
 
 ---
 
-${synthesis}`;
+${synthesis}${crmSection}`;
 
     await insertArtifact(itemId, workflowId, stage, "Warm contact enrichment", content);
     return;

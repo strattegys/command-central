@@ -5,6 +5,11 @@ import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifact";
 import { createTask } from "@/lib/tasks";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
+import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "@/lib/warm-outreach-researching-guard";
+import {
+  packageStageDisallowsFakeData,
+  stripUseFakeDataFromPackageSpec,
+} from "@/lib/package-use-fake-data";
 
 /**
  * POST /api/crm/packages/activate
@@ -12,7 +17,9 @@ import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
  * Activates a package: creates workflows + boards + initial items
  * for each deliverable in the package spec.
  *
- * Body: { packageId: string }
+ * Body: { packageId: string, targetStage?, skipTasks?, useFakeData? }
+ * useFakeData: only written to package spec when sent as a boolean (Start Test / Activate from Penny).
+ * Omitting it preserves the existing spec flag so Activate does not force fake LLM artifacts.
  *
  * Steps:
  * 1. Load the package and its spec.deliverables
@@ -24,7 +31,12 @@ import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { packageId, targetStage = "ACTIVE", skipTasks = false, useFakeData = true } = await req.json();
+    const body = await req.json();
+    const packageId = body.packageId as string | undefined;
+    const targetStage = (body.targetStage as string | undefined) ?? "ACTIVE";
+    const skipTasks = Boolean(body.skipTasks);
+    const useFakeDataBody =
+      typeof body.useFakeData === "boolean" ? body.useFakeData : undefined;
     if (!packageId) {
       return NextResponse.json({ error: "packageId is required" }, { status: 400 });
     }
@@ -50,19 +62,26 @@ export async function POST(req: NextRequest) {
     // skipTasks: just move stage, don't create workflows/tasks
     if (skipTasks) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
+      if (packageStageDisallowsFakeData(targetStage)) {
+        await stripUseFakeDataFromPackageSpec(packageId);
+      }
       const activationLog = [
         `[${new Date().toISOString()}] Testing mode: stage → ${targetStage}, no workflows created (skipTasks)`,
       ];
       return NextResponse.json({ ok: true, packageId, workflows: [], activationLog });
     }
 
-    // Always store useFakeData flag on the package so resolve handler can read it
-    const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
-    spec.useFakeData = useFakeData;
-    await query(
-      `UPDATE "_package" SET spec = $1, "updatedAt" = NOW() WHERE id = $2`,
-      [JSON.stringify(spec), packageId]
-    );
+    const spec =
+      typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : { ...pkg.spec };
+
+    // Persist useFakeData only when Penny sends it — avoids Activate overwriting with "true" by default
+    if (useFakeDataBody !== undefined) {
+      spec.useFakeData = useFakeDataBody;
+      await query(
+        `UPDATE "_package" SET spec = $1, "updatedAt" = NOW() WHERE id = $2`,
+        [JSON.stringify(spec), packageId]
+      );
+    }
 
     // If workflows already exist (re-activation from PENDING_APPROVAL → ACTIVE), just update stage
     const existingWfs = await query<{ id: string; name: string; ownerAgent: string }>(
@@ -71,6 +90,9 @@ export async function POST(req: NextRequest) {
     );
     if (existingWfs.length > 0) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
+      if (packageStageDisallowsFakeData(targetStage)) {
+        await stripUseFakeDataFromPackageSpec(packageId);
+      }
       const activationLog = [
         `[${new Date().toISOString()}] Re-activate: ${existingWfs.length} existing workflow(s), stage → ${targetStage}`,
         ...existingWfs.map(
@@ -99,7 +121,9 @@ export async function POST(req: NextRequest) {
     const logAct = (line: string) => {
       activationLog.push(`[${new Date().toISOString()}] ${line}`);
     };
-    logAct(`Activate: package "${pkg.name}" (${packageId.slice(0, 8)}…) → ${targetStage}, useFakeData=${useFakeData}`);
+    logAct(
+      `Activate: package "${pkg.name}" (${packageId.slice(0, 8)}…) → ${targetStage}, useFakeData=${spec.useFakeData === true}`
+    );
 
     // 2-4. For each deliverable, create board + workflow + initial item
     for (const deliverable of deliverables) {
@@ -149,12 +173,14 @@ export async function POST(req: NextRequest) {
       // 4. Create initial workflow item(s) at the first stage
       if (wfType.itemType === "content") {
         // Create a content item and link it
+        const contentTitleBase =
+          pkg.name && String(pkg.name).trim() ? String(pkg.name).trim() : deliverable.label;
         const ciRows = await query<{ id: string }>(
           `INSERT INTO "_content_item" (title, description, "contentType", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, NOW(), NOW())
            RETURNING id`,
           [
-            `${deliverable.label} — Draft`,
+            `${contentTitleBase} — Draft`,
             `Auto-created from package: ${pkg.name}`,
             "article",
           ]
@@ -177,7 +203,7 @@ export async function POST(req: NextRequest) {
           `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, NOW(), NOW())
            RETURNING id`,
-          ["Next", "Contact", "Warm outreach — awaiting contact details"]
+          ["Next", "Contact", WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
         );
         const personId = (pRows[0] as Record<string, unknown>).id as string;
         const wiRows = await query<{ id: string }>(
@@ -208,6 +234,9 @@ export async function POST(req: NextRequest) {
       `UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
       [targetStage, packageId]
     );
+    if (packageStageDisallowsFakeData(targetStage)) {
+      await stripUseFakeDataFromPackageSpec(packageId);
+    }
 
     // 6. Trigger the first task for each deliverable's owner agent
     if (targetStage === "PENDING_APPROVAL" || targetStage === "ACTIVE") {

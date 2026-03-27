@@ -15,6 +15,59 @@ const MAX_TOOL_ITERATIONS = 20;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 
+/** Strip grounding suffix before matching punch_list tool text. */
+function stripToolGroundingSuffix(s: string): string {
+  const idx = s.indexOf("\n\n[Assistant reply rule:");
+  return (idx >= 0 ? s.slice(0, idx) : s).trim();
+}
+
+/**
+ * Short user-facing reply for simple punch_list outcomes — skips a second LLM round (faster, less jargon).
+ */
+function tryPunchListFastUserReply(toolResultsThisRound: string[]): string | null {
+  if (toolResultsThisRound.length !== 1) return null;
+  const raw = stripToolGroundingSuffix(toolResultsThisRound[0]);
+  if (!raw || raw.length > 450) return null;
+  if (/^error:/i.test(raw)) return null;
+  const lines = raw.split("\n").filter((l) => l.trim());
+  if (lines.length > 6) return null;
+
+  const moved = raw.match(
+    /^Punch list item #(\d+) "([^"]+)" — now \[([^\]]+)\]/
+  );
+  if (moved) return `Done — I moved #${moved[1]} to ${moved[3]}.`;
+
+  const done = raw.match(/^Punch list item #(\d+)(?: "([^"]+)")? marked done\.$/);
+  if (done) return `Done — #${done[1]} is checked off.`;
+
+  const created = raw.match(
+    /^Punch list item created: #(\d+) "([^"]+)" \[[^\]]+\]/
+  );
+  if (created) return `Added #${created[1]} to the punch list.`;
+
+  const archivedN = raw.match(/^Archived (\d+) completed items\.$/);
+  if (archivedN) return `Archived ${archivedN[1]} completed items.`;
+
+  const reopened = raw.match(/^Punch list item #(\d+) reopened\.$/);
+  if (reopened) return `Reopened #${reopened[1]}.`;
+
+  const archivedOne = raw.match(/^Punch list item #(\d+) archived\.$/);
+  if (archivedOne) return `Archived #${archivedOne[1]}.`;
+
+  const noteAdded = raw.match(/^Note added to punch list item #(\d+)\.$/);
+  if (noteAdded) return `Note saved on #${noteAdded[1]}.`;
+
+  if (
+    lines.length > 1 &&
+    lines.every((l) => /^Punch list item #\d+ marked done\.$/.test(l))
+  ) {
+    const nums = lines.map((l) => l.match(/^Punch list item #(\d+)/)![1]);
+    return `Marked done: ${nums.map((n) => `#${n}`).join(", ")}.`;
+  }
+
+  return null;
+}
+
 // ── Types (OpenAI-compatible) ──
 
 interface GroqMessage {
@@ -44,6 +97,240 @@ interface GroqTool {
       required: string[];
     };
   };
+}
+
+/**
+ * Llama on Groq often emits pseudo-tool syntax instead of structured tool_calls, e.g.
+ * `<function=workflow_items.get-workflow-artifact({"item_id":"…","stage":"CAMPAIGN_SPEC"})>`
+ * which would otherwise be shown as plain chat and never execute.
+ */
+
+/** From s[start] === '{', match the closing '}' of that object; ignore { } inside JSON strings. */
+function extractBalancedJsonObject(
+  s: string,
+  start: number
+): { json: string; end: number } | null {
+  if (s[start] !== "{") return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]!;
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return { json: s.slice(start, i + 1), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+function extractParenJsonFunctionCall(
+  text: string
+): { qualifiedName: string; argsJson: string } | null {
+  const t = text.trim();
+  if (!t.startsWith("<function=")) return null;
+  const afterTag = t.slice("<function=".length);
+  const openParen = afterTag.indexOf("(");
+  if (openParen < 0) return null;
+  const qualifiedName = afterTag.slice(0, openParen).trim();
+  let i = openParen + 1;
+  while (i < afterTag.length && /\s/.test(afterTag[i]!)) i++;
+  if (afterTag[i] !== "{") return null;
+  const balanced = extractBalancedJsonObject(afterTag, i);
+  if (!balanced) return null;
+  const jsonStr = balanced.json;
+  let j = balanced.end;
+  while (j < afterTag.length && /\s/.test(afterTag[j]!)) j++;
+  if (afterTag[j] === ")") {
+    j++;
+    while (j < afterTag.length && /\s/.test(afterTag[j]!)) j++;
+  }
+  if (j < afterTag.length && afterTag[j] === ">") {
+    return { qualifiedName, argsJson: jsonStr };
+  }
+  const rest = afterTag.slice(j).trimStart();
+  if (/^(\}\s*)?<\/function>/i.test(rest) || rest === "" || rest.startsWith("}")) {
+    return { qualifiedName, argsJson: jsonStr };
+  }
+  return null;
+}
+
+/** `<function=name{...}>` (no parentheses around JSON). */
+function extractBraceOnlyFunctionCall(
+  text: string
+): { qualifiedName: string; argsJson: string } | null {
+  const t = text.trim();
+  if (!t.startsWith("<function=")) return null;
+  const after = t.slice("<function=".length);
+  const braceIdx = after.indexOf("{");
+  if (braceIdx < 0) return null;
+  const qualifiedName = after.slice(0, braceIdx).trim();
+  const balanced = extractBalancedJsonObject(after, braceIdx);
+  if (!balanced) return null;
+  const jsonStr = balanced.json;
+  let j = balanced.end;
+  while (j < after.length && /\s/.test(after[j]!)) j++;
+  if (j < after.length && after[j] === ">") {
+    return { qualifiedName, argsJson: jsonStr };
+  }
+  const rest = after.slice(j).trimStart();
+  if (/^<\/function>/i.test(rest)) return { qualifiedName, argsJson: jsonStr };
+  return null;
+}
+
+/**
+ * When the model puts markdown with unescaped " in `artifact`, JSON.parse fails.
+ * Find `"artifact": "` … closing `"\}\}</function>` or `"\)\s*>` by end anchor (not by JSON rules).
+ */
+function tryLooseRecoverWorkflowItemsUpdate(slice: string): GroqToolCall | null {
+  if (!/workflow_items\.update-workflow-artifact/i.test(slice)) return null;
+  const itemId = slice.match(/"item_id"\s*:\s*"([a-f0-9-]{36})"/i)?.[1];
+  const stage = slice.match(/"stage"\s*:\s*"([^"]+)"/)?.[1];
+  if (!itemId || !stage) return null;
+  const head = slice.match(/"artifact"\s*:\s*"/);
+  if (!head || head.index === undefined) return null;
+  const valueStart = head.index + head[0].length;
+
+  const fnIdx = slice.search(/<\/function>/i);
+  const beforeFn = (fnIdx >= 0 ? slice.slice(0, fnIdx) : slice).trimEnd();
+
+  const close =
+    beforeFn.match(/("\s*\}\s*\)\s*>)\s*$/) ||
+    beforeFn.match(/("\s*\}\s*\}\s*)\s*$/);
+  if (!close || close.index === undefined || close.index <= valueStart) return null;
+
+  const artifact = beforeFn.slice(valueStart, close.index);
+  if (!artifact.length) return null;
+
+  const normalized = workflowItemsArgsFromMalformed("workflow_items.update-workflow-artifact", {
+    item_id: itemId,
+    stage: stage.trim(),
+    artifact,
+  });
+  if (!normalized) return null;
+  return {
+    id: `recovered-loose-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    type: "function",
+    function: {
+      name: "workflow_items",
+      arguments: JSON.stringify(normalized),
+    },
+  };
+}
+
+function workflowItemsArgsFromMalformed(
+  qualifiedName: string,
+  obj: Record<string, unknown>
+): Record<string, string> | null {
+  const qn = qualifiedName.trim();
+  let command = "";
+  if (qn.startsWith("workflow_items.")) {
+    command = qn.slice("workflow_items.".length);
+  } else if (qn === "workflow_items" && typeof obj.command === "string") {
+    command = obj.command;
+  } else {
+    return null;
+  }
+
+  const arg1Raw =
+    obj.arg1 ?? obj.item_id ?? obj.workflowItemId ?? obj.workflow_item_id ?? obj.itemId;
+  const arg2Raw = obj.arg2 ?? obj.stage ?? obj.newStage;
+  const arg3Raw =
+    obj.arg3 ??
+    obj.artifact ??
+    obj.content ??
+    obj.markdown ??
+    obj.body ??
+    obj.text ??
+    obj.new_content;
+
+  const out: Record<string, string> = { command };
+  if (arg1Raw != null) out.arg1 = String(arg1Raw).trim();
+  if (arg2Raw != null) out.arg2 = String(arg2Raw).trim();
+  if (arg3Raw != null)
+    out.arg3 = typeof arg3Raw === "string" ? arg3Raw : JSON.stringify(arg3Raw);
+  if (obj.arg4 != null) out.arg4 = String(obj.arg4);
+  if (obj.arg5 != null) out.arg5 = String(obj.arg5);
+
+  if (
+    (command === "get-workflow-artifact" || command === "update-workflow-artifact") &&
+    (!out.arg1 || !out.arg2)
+  ) {
+    return null;
+  }
+  if (command === "update-workflow-artifact" && !out.arg3) return null;
+
+  return out;
+}
+
+function buildWorkflowItemsRecoveredCall(
+  qualifiedName: string,
+  obj: Record<string, unknown>
+): GroqToolCall | null {
+  const normalized = workflowItemsArgsFromMalformed(qualifiedName, obj);
+  if (!normalized) return null;
+  return {
+    id: `recovered-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    type: "function",
+    function: {
+      name: "workflow_items",
+      arguments: JSON.stringify(normalized),
+    },
+  };
+}
+
+function tryRecoverToolCallsFromTextContent(content: string): GroqToolCall[] {
+  const idx = content.indexOf("<function=");
+  if (idx < 0) return [];
+  const slice = content.slice(idx).trimStart();
+
+  const parsed =
+    extractParenJsonFunctionCall(slice) || extractBraceOnlyFunctionCall(slice);
+
+  if (parsed) {
+    const qn = parsed.qualifiedName;
+    if (qn === "workflow_items" || qn.startsWith("workflow_items.")) {
+      try {
+        const obj = JSON.parse(parsed.argsJson) as Record<string, unknown>;
+        const tc = buildWorkflowItemsRecoveredCall(qn, obj);
+        if (tc) return [tc];
+      } catch {
+        /* e.g. unescaped " inside artifact string — try loose extractor */
+      }
+    }
+  }
+
+  const loose = tryLooseRecoverWorkflowItemsUpdate(slice);
+  return loose ? [loose] : [];
+}
+
+function mergeRecoveredToolCalls(
+  content: string,
+  tool_calls?: GroqToolCall[]
+): { content: string; tool_calls?: GroqToolCall[] } {
+  if (tool_calls && tool_calls.length > 0) {
+    return { content, tool_calls };
+  }
+  const recovered = tryRecoverToolCallsFromTextContent(content);
+  if (recovered.length > 0) {
+    console.log("[groq] Recovered tool call(s) from assistant text (malformed <function=...>)");
+    return { content: "", tool_calls: recovered };
+  }
+  return { content, tool_calls: undefined };
 }
 
 // ── Helpers ──
@@ -85,8 +372,10 @@ function buildMessages(
   const sysContent = hasTools
     ? systemPrompt +
       "\n\nIMPORTANT: Use the provided tool-calling API to invoke tools. " +
-      "NEVER write tool calls as XML/text like <function=name{...}>. " +
-      "Always use the structured tool_calls API."
+      "NEVER write tool calls as XML/text like <function=name{...}> or <function=tool.subcommand({...})>. " +
+      "The tool name is a single identifier (e.g. workflow_items); pass command and args as one JSON object. " +
+      "Always use the structured tool_calls API. " +
+      "After tools run, your reply must match the tool results exactly (same item #s and actions)—do not invent a different outcome."
     : systemPrompt;
 
   const messages: GroqMessage[] = [
@@ -139,15 +428,19 @@ async function groqChat(
   if (!res.ok) {
     const errText = await res.text().catch(() => "Unknown error");
 
-    // Recover malformed tool calls (Llama generates <function=name{args}> text)
+    // Recover malformed tool calls (Llama generates <function=...> text)
     if (res.status === 400 && errText.includes("tool_use_failed")) {
       try {
         const errJson = JSON.parse(errText);
         const failedGen: string = errJson?.error?.failed_generation || "";
+        const fromFailed = tryRecoverToolCallsFromTextContent(failedGen);
+        if (fromFailed.length > 0) {
+          console.log("[groq] Recovered malformed tool call from failed_generation");
+          return { content: "", tool_calls: fromFailed };
+        }
         const match = failedGen.match(/<function=(\w+)(\{[\s\S]*?\})>/);
         if (match) {
           const [, name, argsStr] = match;
-          // Validate the args are parseable JSON
           JSON.parse(argsStr);
           console.log(`[groq] Recovered malformed tool call: ${name}`);
           return {
@@ -190,10 +483,7 @@ async function groqChat(
 
   const data = await res.json();
   const choice = data.choices?.[0]?.message;
-  return {
-    content: choice?.content || "",
-    tool_calls: choice?.tool_calls,
-  };
+  return mergeRecoveredToolCalls(choice?.content || "", choice?.tool_calls);
 }
 
 // ── Streaming chat ──
@@ -283,6 +573,7 @@ export async function chatStreamGroq(
 
     // Execute tool calls and send results back (with dedup)
     const toolNames: string[] = [];
+    const batchToolBodies: string[] = [];
     for (const tc of response.tool_calls) {
       const toolName = tc.function.name;
       const parsed = JSON.parse(tc.function.arguments || "{}");
@@ -314,6 +605,7 @@ export async function chatStreamGroq(
         result.slice(0, 200)
       );
       toolNames.push(toolName);
+      batchToolBodies.push(result);
 
       // Groq requires tool_call_id to match the call
       messages.push({
@@ -326,6 +618,39 @@ export async function chatStreamGroq(
     // Notify client which tools were used
     for (const tn of toolNames) {
       onChunk(`\n<!--toolUsed:${tn}-->`);
+    }
+
+    // Skip second LLM round for simple punch_list outcomes (faster + shorter voice reply)
+    const fastReply =
+      toolNames.length === 1 &&
+      toolNames[0] === "punch_list" &&
+      tryPunchListFastUserReply(batchToolBodies);
+    if (fastReply) {
+      addMessage(sessionFile, {
+        role: "user",
+        text: persistedUserText,
+        timestamp: Date.now(),
+      });
+      const modelMsg: ChatMessage = {
+        role: "model",
+        text: fastReply,
+        timestamp: Date.now(),
+      };
+      if (delegatedAgents.size > 0) {
+        modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+      }
+      addMessage(sessionFile, modelMsg);
+      if (!isChatEphemeralAgent(agentId)) {
+        consolidateSession(agentId, sessionFile).catch(() => {});
+      }
+      onChunk(fastReply);
+      return {
+        text: fastReply,
+        delegatedFrom:
+          delegatedAgents.size > 0
+            ? Array.from(delegatedAgents).join(",")
+            : undefined,
+      };
     }
   }
 

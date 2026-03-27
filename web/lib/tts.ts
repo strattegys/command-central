@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { groqCompletion } from "@/lib/groq-completion";
 
 /** Same base URL as Rainbow Bot (`avabot_server.py`). */
 const INWORLD_TTS_API = "https://api.inworld.ai/tts/v1/voice";
@@ -9,29 +9,22 @@ export type TtsSynthesisResult = {
 };
 
 /**
- * Summarize a long response into a concise spoken blurb using Gemini Flash.
+ * Summarize a long response into a concise spoken blurb (Groq, same stack as chat).
  */
 export async function summarizeForVoice(text: string): Promise<string> {
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
-  const response = await client.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `You are Suzi, an AI assistant. Summarize this response as a brief spoken recap (3-5 sentences). Rules:
+  const system = `You are Suzi, an AI assistant. Summarize the user's message as a brief spoken recap (3-5 sentences). Rules:
 - Speak in first person as Suzi
 - Cover ALL key points, not just the greeting
 - Be natural and conversational, like you're giving a verbal update to your boss
 - Do NOT use phrases like "the speaker" or "the response says"
 - Do NOT output just a greeting — lead with substance
-- Strip out markdown formatting, bullet points, and lists — convert to flowing speech
+- Strip out markdown formatting, bullet points, and lists — convert to flowing speech`;
 
-Response to summarize:
-${text}`,
+  const out = await groqCompletion(system, text, {
+    max_tokens: 1024,
+    temperature: 0.35,
   });
-
-  const result = response.text;
-  if (result) {
-    return result;
-  }
+  if (out) return out;
   return "Here's a quick summary of what I said.";
 }
 

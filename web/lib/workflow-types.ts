@@ -233,9 +233,9 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           label: "Researching",
           color: "#2563EB",
           instructions:
-            "Tim enriches the contact using LinkedIn fetch-profile and web_search. Document: " +
-            "full name/title, company, recent posts/activity, mutual connections, conversation starters, " +
-            "recommended messaging angle.",
+            "**Automatic (server):** Fetch the LinkedIn profile via Unipile using the person’s LinkedIn URL or the URL in intake notes, then **update the linked CRM `person`** with name, headline/title, current company (create/link `company` row), and LinkedIn URL. " +
+            "The work-queue header reads from that row. **Agent (Tim in chat):** Still reconcile CRM if needed (search-contacts / update-contact) when Govind asks — the pipeline assumes LinkedIn is the source of truth for warm outreach. " +
+            "Then the enrichment artifact documents activity, angles, and suggested messaging.",
         },
         {
           key: "MESSAGE_DRAFT",

@@ -16,6 +16,7 @@ interface AgentSidebarProps {
   pendingTaskCount?: number;
   testingTaskCount?: number;
   timMessagingTaskCount?: number;
+  ghostContentTaskCount?: number;
 }
 
 export default function AgentSidebar({
@@ -26,6 +27,7 @@ export default function AgentSidebar({
   pendingTaskCount = 0,
   testingTaskCount = 0,
   timMessagingTaskCount = 0,
+  ghostContentTaskCount = 0,
 }: AgentSidebarProps) {
   const appTitle = getAppBrandTitle();
   const headline = getAppHeadline();
@@ -95,7 +97,8 @@ export default function AgentSidebar({
                             background: !agent.online
                               ? "#555"
                               : (agent.id === "penny" && testingTaskCount > 0) ||
-                                  (agent.id === "tim" && timMessagingTaskCount > 0)
+                                  (agent.id === "tim" && timMessagingTaskCount > 0) ||
+                                  (agent.id === "ghost" && ghostContentTaskCount > 0)
                                 ? "#F59E0B"
                                 : "#1D9E75",
                           }}

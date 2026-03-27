@@ -6,6 +6,7 @@ import {
   fetchUnipileLinkedInProfile,
   isUnipileConfigured,
 } from "@/lib/unipile-profile";
+import { isWarmOutreachPlaceholderJobTitle } from "@/lib/warm-outreach-researching-guard";
 
 function logTs(message: string): string {
   return `[${new Date().toISOString()}] ${message}`;
@@ -44,6 +45,83 @@ async function resolveOrCreateCompanyId(name: string, logs: string[]): Promise<s
  * Updates the placeholder (or existing) person linked to a warm-outreach item
  * when Govind submits AWAITING_CONTACT notes.
  */
+/**
+ * Warm-outreach RESEARCHING: apply Unipile LinkedIn profile JSON to the linked CRM person.
+ * Prefers LinkedIn fields when present; clears discovery placeholder job title when replacing.
+ */
+export async function applyUnipileResearchToPerson(
+  personId: string,
+  rawUnipile: unknown,
+  logs: string[]
+): Promise<boolean> {
+  const u = extractUnipileProfileCrmFields(rawUnipile);
+  if (!u) {
+    logs.push(logTs("Warm RESEARCHING: Unipile response had no usable CRM fields — person row unchanged"));
+    return false;
+  }
+
+  const rows = await query<{
+    nameFirstName: string | null;
+    nameLastName: string | null;
+    jobTitle: string | null;
+    linkedinLinkPrimaryLinkUrl: string | null;
+    companyId: string | null;
+  }>(
+    `SELECT "nameFirstName", "nameLastName", "jobTitle", "linkedinLinkPrimaryLinkUrl", "companyId"
+     FROM person WHERE id = $1 AND "deletedAt" IS NULL`,
+    [personId]
+  );
+  if (rows.length === 0) {
+    logs.push(logTs("Warm RESEARCHING: person row not found"));
+    return false;
+  }
+
+  const cur = rows[0];
+  const nextFirst = u.firstName.trim() || (cur.nameFirstName || "").trim();
+  const nextLast = (u.lastName || "").trim() || (cur.nameLastName || "").trim() || "";
+
+  let nextTitle: string;
+  if ((u.jobTitle || "").trim()) {
+    nextTitle = (u.jobTitle || "").trim();
+  } else if (isWarmOutreachPlaceholderJobTitle(cur.jobTitle)) {
+    nextTitle = "";
+  } else {
+    nextTitle = (cur.jobTitle || "").trim();
+  }
+
+  const nextLi = (u.profileUrl || "").trim() || (cur.linkedinLinkPrimaryLinkUrl || "").trim();
+
+  let companyId: string | null = cur.companyId ?? null;
+  if (u.companyName?.trim()) {
+    const cid = await resolveOrCreateCompanyId(u.companyName.trim(), logs);
+    if (cid) companyId = cid;
+  }
+
+  if (!nextFirst) {
+    logs.push(logTs("Warm RESEARCHING: skip UPDATE — no first name from LinkedIn or CRM"));
+    return false;
+  }
+
+  await query(
+    `UPDATE person SET
+       "nameFirstName" = $1,
+       "nameLastName" = $2,
+       "jobTitle" = NULLIF(TRIM($3), ''),
+       "linkedinLinkPrimaryLinkUrl" = NULLIF(TRIM($4), ''),
+       "companyId" = $5,
+       "updatedAt" = NOW()
+     WHERE id = $6 AND "deletedAt" IS NULL`,
+    [nextFirst, nextLast, nextTitle, nextLi, companyId, personId]
+  );
+
+  logs.push(
+    logTs(
+      `Warm RESEARCHING: updated person ${personId.slice(0, 8)}… name="${nextFirst} ${nextLast}" title=${nextTitle ? "set" : "cleared"} companyLinked=${companyId ? "yes" : "no"}`
+    )
+  );
+  return true;
+}
+
 export async function applyWarmContactIntakeToPerson(
   personId: string,
   notes: string,

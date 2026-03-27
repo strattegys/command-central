@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { panelBus } from "@/lib/events";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
 import { WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS } from "@/lib/warm-outreach-cadence";
+import { isWarmOutreachPlaceholderJobTitle } from "@/lib/warm-outreach-researching-guard";
 import ArtifactViewer, { type ArtifactConfirmedWorkflowAction } from "../shared/ArtifactViewer";
 import TimIntakeWorkspace from "./TimIntakeWorkspace";
 
@@ -75,20 +76,35 @@ function formatNextWarmSlotPacific(iso: string): string {
 
 /** Renders under the “Warm Outreach” + document icon title (ArtifactViewer + intake). */
 function warmOutreachPersonHeaderDetail(task: MessagingTask) {
-  const name = task.contactSlotOpen
-    ? "Add contact (intake below)"
-    : task.contactName?.trim() || "—";
+  const awaitingDetails =
+    task.contactSlotOpen || task.stage === "AWAITING_CONTACT";
+  const name = task.contactName?.trim() || "—";
   const company = task.contactCompany?.trim() || "—";
-  const title = task.contactTitle?.trim() || "—";
+  const rawTitle = task.contactTitle?.trim() || "";
+  const jobTitle =
+    isWarmOutreachPlaceholderJobTitle(rawTitle) || !rawTitle ? "—" : rawTitle;
+
   return (
-    <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5 text-[10px] leading-snug max-w-full">
-      <dt className="text-[var(--text-tertiary)]">Name</dt>
-      <dd className="text-[var(--text-primary)] font-medium min-w-0 break-words">{name}</dd>
-      <dt className="text-[var(--text-tertiary)]">Company</dt>
-      <dd className="text-[var(--text-primary)] min-w-0 break-words">{company}</dd>
-      <dt className="text-[var(--text-tertiary)]">Title</dt>
-      <dd className="text-[var(--text-primary)] min-w-0 break-words">{title}</dd>
-    </dl>
+    <div className="space-y-1.5 text-[10px] leading-snug max-w-full">
+      {awaitingDetails ? (
+        <p className="text-[9px] font-semibold text-[var(--text-secondary)] pb-1 border-b border-[var(--border-color)]/50">
+          Warm outreach — awaiting contact details
+        </p>
+      ) : null}
+      <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5">
+        <dt className="text-[var(--text-tertiary)]">Name</dt>
+        <dd className="text-[var(--text-primary)] font-medium min-w-0 break-words">{name}</dd>
+      </dl>
+      <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
+        Do these in order when you have a contact:
+      </p>
+      <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5">
+        <dt className="text-[var(--text-tertiary)]">Company</dt>
+        <dd className="text-[var(--text-primary)] min-w-0 break-words">{company}</dd>
+        <dt className="text-[var(--text-tertiary)]">Title</dt>
+        <dd className="text-[var(--text-primary)] min-w-0 break-words">{jobTitle}</dd>
+      </dl>
+    </div>
   );
 }
 
@@ -126,12 +142,65 @@ function messageAffiliationLine(t: MessagingTask): string {
   return `${pkg} · ${wf}`;
 }
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 8000;
+
+function timTasksFingerprint(
+  list: Array<{
+    itemId: string;
+    stage: string;
+    itemTitle: string;
+    stageLabel: string;
+    humanAction: string;
+    workflowId: string;
+    dueDate: string | null;
+    waitingFollowUp: boolean;
+  }>
+): string {
+  return list
+    .map(
+      (t) =>
+        `${t.itemId}\t${t.stage}\t${t.itemTitle}\t${t.stageLabel}\t${t.humanAction}\t${t.workflowId}\t${t.dueDate ?? ""}\t${t.waitingFollowUp ? 1 : 0}`
+    )
+    .join("\n");
+}
 
 function timSecondaryActionsVisible(task: MessagingTask): boolean {
   if (task.stage === "MESSAGED" && task.workflowType === "warm-outreach") return true;
   if (task.stage === "REPLY_DRAFT" && task.workflowType === "warm-outreach") return true;
   return !NO_REJECT_STAGES.has(task.stage);
+}
+
+function TimQueueItemRow({
+  task,
+  active,
+  onSelect,
+}: {
+  task: MessagingTask;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const secondary = timQueueCardSecondaryLine(task);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
+        active
+          ? "border-[var(--accent-green)]/50 bg-[var(--accent-green)]/10"
+          : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
+      }`}
+    >
+      <div className="text-[10px] font-semibold text-[var(--text-primary)] truncate">
+        {timQueueCardPrimaryTitle(task)}
+      </div>
+      {secondary ? (
+        <div className="text-[9px] text-[var(--text-tertiary)] truncate">{secondary}</div>
+      ) : null}
+      <div className="text-[9px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
+        {messageAffiliationLine(task)}
+      </div>
+    </button>
+  );
 }
 
 function TimTaskActionBar({
@@ -166,9 +235,15 @@ function TimTaskActionBar({
 
 export default function TimMessagesPanel({
   embedded = false,
+  queueTab,
   onWorkSelectionChange,
 }: {
   embedded?: boolean;
+  /**
+   * When set (e.g. from `TimAgentPanel` work tabs), only that queue is listed and selectable.
+   * When omitted, both Active and Pending sections render in one sidebar (standalone layout).
+   */
+  queueTab?: "active" | "pending";
   /** Lets main Tim chat include the selected queue row as ephemeral context. */
   onWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }) {
@@ -180,7 +255,9 @@ export default function TimMessagesPanel({
   const [warmSyncHint, setWarmSyncHint] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [warmOutreachDaily, setWarmOutreachDaily] = useState<WarmOutreachDailyProgress | null>(null);
+  const [resolveHint, setResolveHint] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const lastTasksFingerprintRef = useRef<string>("");
 
   const fetchTasks = useCallback((): Promise<void> => {
     return fetch("/api/crm/human-tasks?ownerAgent=tim", { credentials: "include" })
@@ -190,6 +267,7 @@ export default function TimMessagesPanel({
           console.warn("[TimMessagesPanel] human-tasks", r.status, snippet);
           if (mountedRef.current) {
             setLoadError(`Could not load queue (HTTP ${r.status}).`);
+            lastTasksFingerprintRef.current = "";
             setTasks([]);
           }
           return null;
@@ -228,41 +306,45 @@ export default function TimMessagesPanel({
           setWarmOutreachDaily(null);
         }
         if (mountedRef.current) {
-          setTasks(
-            list.map((t: Record<string, unknown>) => ({
-              itemId: String(t.itemId),
-              itemTitle: String(t.itemTitle || ""),
-              itemSubtitle: String(t.itemSubtitle || ""),
-              sourceId: t.sourceId != null ? String(t.sourceId) : null,
-              workflowId: String(t.workflowId || ""),
-              workflowName: String(t.workflowName || ""),
-              packageName: String(t.packageName || ""),
-              ownerAgent: String(t.ownerAgent || "tim"),
-              packageId: t.packageId != null ? String(t.packageId) : null,
-              packageNumber: t.packageNumber != null ? Number(t.packageNumber) : null,
-              packageStage: t.packageStage != null ? String(t.packageStage) : null,
-              inActiveCampaign: Boolean(t.inActiveCampaign),
-              workflowType: String(t.workflowType || ""),
-              stage: String(t.stage || ""),
-              stageLabel: String(t.stageLabel || ""),
-              humanAction: String(t.humanAction || ""),
-              dueDate: t.dueDate != null ? String(t.dueDate) : null,
-              itemType: String(t.itemType || "person"),
-              createdAt: String(t.createdAt || ""),
-              waitingFollowUp: Boolean(t.waitingFollowUp),
-              contactSlotOpen: Boolean(t.contactSlotOpen),
-              contactName: t.contactName != null ? String(t.contactName) : null,
-              contactCompany: t.contactCompany != null ? String(t.contactCompany) : null,
-              contactTitle: t.contactTitle != null ? String(t.contactTitle) : null,
-              contactDbSyncPending: Boolean(t.contactDbSyncPending),
-            }))
-          );
+          const next = list.map((t: Record<string, unknown>) => ({
+            itemId: String(t.itemId),
+            itemTitle: String(t.itemTitle || ""),
+            itemSubtitle: String(t.itemSubtitle || ""),
+            sourceId: t.sourceId != null ? String(t.sourceId) : null,
+            workflowId: String(t.workflowId || ""),
+            workflowName: String(t.workflowName || ""),
+            packageName: String(t.packageName || ""),
+            ownerAgent: String(t.ownerAgent || "tim"),
+            packageId: t.packageId != null ? String(t.packageId) : null,
+            packageNumber: t.packageNumber != null ? Number(t.packageNumber) : null,
+            packageStage: t.packageStage != null ? String(t.packageStage) : null,
+            inActiveCampaign: Boolean(t.inActiveCampaign),
+            workflowType: String(t.workflowType || ""),
+            stage: String(t.stage || ""),
+            stageLabel: String(t.stageLabel || ""),
+            humanAction: String(t.humanAction || ""),
+            dueDate: t.dueDate != null ? String(t.dueDate) : null,
+            itemType: String(t.itemType || "person"),
+            createdAt: String(t.createdAt || ""),
+            waitingFollowUp: Boolean(t.waitingFollowUp),
+            contactSlotOpen: Boolean(t.contactSlotOpen),
+            contactName: t.contactName != null ? String(t.contactName) : null,
+            contactCompany: t.contactCompany != null ? String(t.contactCompany) : null,
+            contactTitle: t.contactTitle != null ? String(t.contactTitle) : null,
+            contactDbSyncPending: Boolean(t.contactDbSyncPending),
+          }));
+          const fp = timTasksFingerprint(next);
+          if (fp !== lastTasksFingerprintRef.current) {
+            lastTasksFingerprintRef.current = fp;
+            setTasks(next);
+          }
         }
       })
       .catch((e) => {
         console.warn("[TimMessagesPanel] human-tasks fetch failed:", e);
         if (mountedRef.current) {
           setLoadError("Network error loading queue.");
+          lastTasksFingerprintRef.current = "";
           setTasks([]);
         }
       })
@@ -287,27 +369,66 @@ export default function TimMessagesPanel({
     };
   }, [fetchTasks]);
 
-  const queue = useMemo(
+  const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     [tasks]
   );
+  const activeQueue = useMemo(
+    () => sortedTasks.filter((t) => !t.waitingFollowUp),
+    [sortedTasks]
+  );
+  const pendingQueue = useMemo(
+    () => sortedTasks.filter((t) => t.waitingFollowUp),
+    [sortedTasks]
+  );
+
+  const visibleQueue = useMemo(() => {
+    if (queueTab === "active") return activeQueue;
+    if (queueTab === "pending") return pendingQueue;
+    return null;
+  }, [queueTab, activeQueue, pendingQueue]);
 
   useEffect(() => {
-    if (queue.length === 0) {
+    if (visibleQueue) {
+      if (visibleQueue.length === 0) {
+        setSelectedId(null);
+        return;
+      }
+      setSelectedId((prev) =>
+        prev && visibleQueue.some((t) => t.itemId === prev)
+          ? prev
+          : visibleQueue[0]?.itemId ?? null
+      );
+      return;
+    }
+    const ordered = [...activeQueue, ...pendingQueue];
+    if (ordered.length === 0) {
       setSelectedId(null);
       return;
     }
-    setSelectedId((prev) => (prev && queue.some((t) => t.itemId === prev) ? prev : queue[0].itemId));
-  }, [queue]);
+    setSelectedId((prev) =>
+      prev && ordered.some((t) => t.itemId === prev)
+        ? prev
+        : activeQueue[0]?.itemId ?? pendingQueue[0]?.itemId ?? null
+    );
+  }, [visibleQueue, activeQueue, pendingQueue]);
 
   useEffect(() => {
     setWarmSyncHint(null);
+    setResolveHint(null);
   }, [selectedId]);
 
-  const selected = useMemo(
-    () => (selectedId ? queue.find((t) => t.itemId === selectedId) ?? null : null),
-    [queue, selectedId]
-  );
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    if (visibleQueue) {
+      return visibleQueue.find((t) => t.itemId === selectedId) ?? null;
+    }
+    return (
+      activeQueue.find((t) => t.itemId === selectedId) ??
+      pendingQueue.find((t) => t.itemId === selectedId) ??
+      null
+    );
+  }, [visibleQueue, activeQueue, pendingQueue, selectedId]);
 
   const isInputStage = Boolean(selected && INPUT_ONLY_STAGES.has(selected.stage));
 
@@ -385,11 +506,17 @@ export default function TimMessagesPanel({
           }
         };
         if (data.ok) {
+          setResolveHint(null);
           if (data.logs?.length) pushLogs(data.logs);
           panelBus.emit("tim_human_task_progress");
           await new Promise((r) => setTimeout(r, 350));
           await fetchTasks();
         } else {
+          const errText =
+            typeof (data as { error?: string }).error === "string"
+              ? (data as { error: string }).error
+              : `HTTP ${res.status}`;
+          setResolveHint(errText);
           pushLogs([
             `[${new Date().toISOString()}] Resolve failed: ${data.error || res.status}`,
             ...(data.logs || []),
@@ -452,9 +579,12 @@ export default function TimMessagesPanel({
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {!embedded && (
         <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-          <span className="text-xs font-semibold text-[var(--text-primary)]">Work queue</span>
+          <span className="text-xs font-semibold text-[var(--text-primary)]">Tim work queues</span>
           <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug">
-            Pick a task on the left. One workspace shows package brief tabs, drafts, and Tim chat — no side column.
+            In Command Central, open the <strong>work panel</strong> (list icon under Tim’s header) and use the{" "}
+            <strong>Active Work Queue</strong> / <strong>Pending Work Queue</strong> tabs. Here (standalone) both queues
+            are listed below.
+            Active needs a decision now; pending is waiting on timing or follow-up.
           </p>
           {loadError && (
             <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">{loadError}</p>
@@ -470,13 +600,23 @@ export default function TimMessagesPanel({
       <div className="flex flex-1 min-h-0 flex-row">
         <aside
           className="w-[20%] min-w-[140px] max-w-[260px] shrink-0 flex flex-col border-r border-[var(--border-color)] bg-[var(--bg-secondary)]/60"
-          aria-label="Tim message queue"
+          aria-label={
+            queueTab === "active"
+              ? "Tim Active Work Queue"
+              : queueTab === "pending"
+                ? "Tim Pending Work Queue"
+                : "Tim message queues"
+          }
         >
           <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)]/80 space-y-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-              Messages ({queue.length})
+              {queueTab === "active"
+                ? `Active Work Queue · ${activeQueue.length}`
+                : queueTab === "pending"
+                  ? `Pending Work Queue · ${pendingQueue.length}`
+                  : `Queues · ${sortedTasks.length} total`}
             </span>
-            {warmOutreachDaily && warmOutreachDaily.target > 0 ? (
+            {warmOutreachDaily && warmOutreachDaily.target > 0 && queueTab !== "pending" ? (
               <div className="rounded border border-[var(--border-color)]/60 bg-[var(--bg-primary)]/40 px-1.5 py-1">
                 <p className="text-[9px] font-medium text-[var(--text-primary)] leading-tight">
                   Today (PT): {warmOutreachDaily.completed} / {warmOutreachDaily.target} contact intakes
@@ -502,36 +642,103 @@ export default function TimMessagesPanel({
               </div>
             ) : null}
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1">
-            {queue.length === 0 ? (
-              <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">Queue empty</p>
+          <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-3">
+            {queueTab === "active" ? (
+              sortedTasks.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">No tasks</p>
+              ) : activeQueue.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
+                  Nothing active — check <strong>Pending Work Queue</strong>.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <div className="px-0.5">
+                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
+                      Drafts, intake, review — needs your attention now.
+                    </p>
+                  </div>
+                  {activeQueue.map((task) => (
+                    <TimQueueItemRow
+                      key={task.itemId}
+                      task={task}
+                      active={task.itemId === selectedId}
+                      onSelect={() => setSelectedId(task.itemId)}
+                    />
+                  ))}
+                </div>
+              )
+            ) : queueTab === "pending" ? (
+              pendingQueue.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
+                  No pending items — waiting rows appear after you message someone and the follow-up window hasn’t
+                  opened yet.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <div className="px-0.5">
+                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
+                      Sent or waiting — next step opens on schedule (or start follow-up early in the workspace).
+                    </p>
+                  </div>
+                  {pendingQueue.map((task) => (
+                    <TimQueueItemRow
+                      key={task.itemId}
+                      task={task}
+                      active={task.itemId === selectedId}
+                      onSelect={() => setSelectedId(task.itemId)}
+                    />
+                  ))}
+                </div>
+              )
+            ) : sortedTasks.length === 0 ? (
+              <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">Queues empty</p>
             ) : (
-              queue.map((task) => {
-                const active = task.itemId === selectedId;
-                const secondary = timQueueCardSecondaryLine(task);
-                return (
-                  <button
-                    key={task.itemId}
-                    type="button"
-                    onClick={() => setSelectedId(task.itemId)}
-                    className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
-                      active
-                        ? "border-[var(--accent-green)]/50 bg-[var(--accent-green)]/10"
-                        : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
-                    }`}
-                  >
-                    <div className="text-[10px] font-semibold text-[var(--text-primary)] truncate">
-                      {timQueueCardPrimaryTitle(task)}
-                    </div>
-                    {secondary ? (
-                      <div className="text-[9px] text-[var(--text-tertiary)] truncate">{secondary}</div>
-                    ) : null}
-                    <div className="text-[9px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
-                      {messageAffiliationLine(task)}
-                    </div>
-                  </button>
-                );
-              })
+              <>
+                <div className="space-y-1">
+                  <div className="px-0.5">
+                    <span className="text-[10px] font-semibold text-[var(--text-primary)]">
+                      Active work queue ({activeQueue.length})
+                    </span>
+                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
+                      Needs your attention now (drafts, intake, review).
+                    </p>
+                  </div>
+                  {activeQueue.length === 0 ? (
+                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None right now.</p>
+                  ) : (
+                    activeQueue.map((task) => (
+                      <TimQueueItemRow
+                        key={task.itemId}
+                        task={task}
+                        active={task.itemId === selectedId}
+                        onSelect={() => setSelectedId(task.itemId)}
+                      />
+                    ))
+                  )}
+                </div>
+                <div className="space-y-1 pt-1 border-t border-[var(--border-color)]/50">
+                  <div className="px-0.5">
+                    <span className="text-[10px] font-semibold text-[var(--text-primary)]">
+                      Pending Work Queue ({pendingQueue.length})
+                    </span>
+                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
+                      Sent or waiting — next step opens on schedule (or start follow-up early from the workspace).
+                    </p>
+                  </div>
+                  {pendingQueue.length === 0 ? (
+                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None.</p>
+                  ) : (
+                    pendingQueue.map((task) => (
+                      <TimQueueItemRow
+                        key={task.itemId}
+                        task={task}
+                        active={task.itemId === selectedId}
+                        onSelect={() => setSelectedId(task.itemId)}
+                      />
+                    ))
+                  )}
+                </div>
+              </>
             )}
           </div>
         </aside>
@@ -602,6 +809,18 @@ export default function TimMessagesPanel({
                 />
               ) : (
                 <>
+                {resolveHint ? (
+                  <div className="shrink-0 mb-2 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2">
+                    <p className="text-[11px] text-amber-100/95 leading-snug">{resolveHint}</p>
+                    <button
+                      type="button"
+                      onClick={() => setResolveHint(null)}
+                      className="mt-1.5 text-[10px] text-amber-200/90 underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
                 {selected.waitingFollowUp ? (
                   <div className="shrink-0 mb-2 rounded-lg border border-teal-500/20 bg-teal-500/5 px-3 py-2">
                     <p className="text-[11px] font-semibold text-[var(--text-primary)]">
@@ -630,7 +849,13 @@ export default function TimMessagesPanel({
                     allWorkflowArtifacts
                     showArtifactChat={false}
                     showArtifactFooter={false}
-                    pollArtifactsMs={5000}
+                    pollArtifactsMs={30000}
+                    linkedInDmBodyStages={
+                      selected.workflowType === "warm-outreach" ||
+                      selected.workflowType === "linkedin-outreach"
+                        ? ["MESSAGE_DRAFT", "REPLY_DRAFT"]
+                        : undefined
+                    }
                     workflowItemId={selected.itemId}
                     itemType={selected.itemType === "person" ? "person" : "content"}
                     title={selected.workflowName}

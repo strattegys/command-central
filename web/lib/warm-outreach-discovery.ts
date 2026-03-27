@@ -7,6 +7,7 @@
 import { query } from "./db";
 import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
 import { syncHumanTaskOpenForItem } from "./workflow-item-human-task";
+import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "./warm-outreach-researching-guard";
 
 /** Pacific wall clock for outreach cadence (cron uses same zone). */
 export const WARM_OUTREACH_PACIFIC_TZ = "America/Los_Angeles";
@@ -229,7 +230,7 @@ export async function insertWarmOutreachDiscoveryItem(
     `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
      VALUES ($1, $2, $3, NOW(), NOW())
      RETURNING id`,
-    ["Next", "Contact", "Warm outreach — awaiting contact details"]
+    ["Next", "Contact", WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
   );
   const personId = (pRows[0] as Record<string, unknown>)?.id as string | undefined;
   if (!personId) return null;

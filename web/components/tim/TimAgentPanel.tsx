@@ -1,71 +1,71 @@
 "use client";
 
+import { useState } from "react";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
-import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import TimMessagesPanel from "./TimMessagesPanel";
 
-export type TimWorkTab = "messages" | "kanban";
+export type TimWorkPanelTab = "active" | "pending";
 
 interface TimAgentPanelProps {
-  tab: TimWorkTab;
-  onTab: (t: TimWorkTab) => void;
-  /** Open items in Tim’s work queue — same source as sidebar / status rail */
+  /** Actionable items (excludes waiting follow-up) — same as human-tasks `count` for Tim */
   messageQueueCount?: number;
+  /** Warm-outreach MESSAGED / waiting follow-up rows */
+  pendingQueueCount?: number;
   onTimWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }
 
 /**
- * Sub-tabs: Work queue | Pipeline.
+ * Tim’s work panel: **work tabs** for Active vs Pending queues (see `AGENT_UI_ARCHITECTURE.md`).
  */
 export default function TimAgentPanel({
-  tab,
-  onTab,
   messageQueueCount = 0,
+  pendingQueueCount = 0,
   onTimWorkSelectionChange,
 }: TimAgentPanelProps) {
+  const [tab, setTab] = useState<TimWorkPanelTab>("active");
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        {(["messages", "kanban"] as const).map((key) => {
-          const label = key === "messages" ? "Work queue" : "Pipeline";
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-0.5">
+        {(["active", "pending"] as const).map((key) => {
+          const label = key === "active" ? "Active Work Queue" : "Pending Work Queue";
           const isActive = tab === key;
-          const showQ =
-            key === "messages" && messageQueueCount > 0;
+          const count = key === "active" ? messageQueueCount : pendingQueueCount;
+          const showBadge = count > 0;
           return (
             <button
               key={key}
               type="button"
-              onClick={() => onTab(key)}
-              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors inline-flex items-center gap-1.5 ${
+              onClick={() => setTab(key)}
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors inline-flex items-center gap-1.5 max-sm:max-w-[48%] ${
                 isActive
                   ? "font-semibold text-[var(--text-primary)]"
                   : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
               }`}
             >
-              <span>{label}</span>
-              {showQ && (
+              <span className="truncate">{label}</span>
+              {showBadge ? (
                 <span
-                  className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#F59E0B] text-[10px] font-bold text-black tabular-nums flex items-center justify-center"
-                  title={`${messageQueueCount} open in work queue`}
+                  className={`shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums flex items-center justify-center ${
+                    key === "active"
+                      ? "bg-[#F59E0B] text-black"
+                      : "bg-teal-500/25 text-teal-200 border border-teal-500/35"
+                  }`}
+                  title={`${count} item${count !== 1 ? "s" : ""}`}
                 >
-                  {messageQueueCount > 99 ? "99+" : messageQueueCount}
+                  {count > 99 ? "99+" : count}
                 </span>
-              )}
+              ) : null}
             </button>
           );
         })}
       </div>
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {tab === "messages" ? (
-          <TimMessagesPanel embedded onWorkSelectionChange={onTimWorkSelectionChange} />
-        ) : (
-          <KanbanInlinePanel
-            onClose={() => onTab("messages")}
-            agentId="tim"
-            readOnly
-            embeddedInTimTabs
-          />
-        )}
+        <TimMessagesPanel
+          embedded
+          queueTab={tab}
+          onWorkSelectionChange={onTimWorkSelectionChange}
+        />
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { PACKAGE_TEMPLATES, type PackageTemplateSpec } from "@/lib/package-types
 import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
 import PackageDetailCard from "./PackageDetailCard";
+import AddPackageModal from "./AddPackageModal";
 import WorkflowTemplateCard from "./WorkflowTemplateCard";
 import HumanTasksPanel from "../friday/HumanTasksPanel";
 import type { PackageSpec } from "@/lib/package-types";
@@ -29,10 +30,19 @@ type Tab = "packages" | "pkg-templates" | "wf-templates";
 
 interface PennyDashboardPanelProps {
   onClose: () => void;
+  /** Chat UI: active tab for ephemeral agent context. */
+  onDashboardTabChange?: (tab: Tab) => void;
 }
 
-export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProps) {
+export default function PennyDashboardPanel({
+  onClose,
+  onDashboardTabChange,
+}: PennyDashboardPanelProps) {
   const [tab, setTab] = useState<Tab>("packages");
+
+  useEffect(() => {
+    onDashboardTabChange?.(tab);
+  }, [tab, onDashboardTabChange]);
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [orphanState, setOrphanState] = useState<{
@@ -42,6 +52,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   }>({ loading: true, count: 0, migrateAllowed: false });
   const [orphanMigrating, setOrphanMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
+  const [addPackageOpen, setAddPackageOpen] = useState(false);
   const mountedRef = useRef(true);
 
   const pkgTemplates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
@@ -223,6 +234,23 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <AddPackageModal
+            open={addPackageOpen}
+            onClose={() => setAddPackageOpen(false)}
+            onCreated={() => {
+              panelBus.emit("package_manager");
+              fetchPackages();
+            }}
+          />
+          <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)] flex items-center justify-end gap-2 bg-[var(--bg-secondary)]/40">
+            <button
+              type="button"
+              onClick={() => setAddPackageOpen(true)}
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-[#E67E22] text-white hover:opacity-90 transition-opacity"
+            >
+              New package
+            </button>
+          </div>
           {!orphanState.loading && orphanState.count > 0 && (
             <div className="shrink-0 mx-3 mt-2 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-[var(--text-secondary)]">
               <div className="flex items-start justify-between gap-2">
@@ -262,9 +290,9 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
               <p className="text-sm text-[var(--text-tertiary)]">Loading packages...</p>
             </div>
           ) : packages.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-sm text-[var(--text-tertiary)]">
-                No packages yet — ask Penny to create one
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4">
+              <p className="text-sm text-[var(--text-tertiary)] text-center">
+                No packages yet — use <strong className="text-[var(--text-secondary)]">New package</strong> above or ask Penny in chat.
               </p>
             </div>
           ) : (
@@ -314,7 +342,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                 testingPackages.map((pkg) => (
                   <div key={pkg.id} className="space-y-2">
                     {/* Package card */}
-                    <PackageDetailCard pkg={pkg} />
+                    <PackageDetailCard pkg={pkg} onPackageMutate={fetchPackages} />
 
                     {/* Tasks + Logs side by side */}
                     <div className="flex gap-1.5 min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0">

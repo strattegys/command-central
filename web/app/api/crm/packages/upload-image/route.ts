@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveArticlesUploadImageUrl } from "@/lib/site-articles-url";
 
 /**
  * Proxy image upload to strattegys.com
  * POST { filename, data (base64) }
- * Returns { ok, url }
+ * Returns { ok, url } — HTTP status matches upstream (401/500) when upload fails.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -15,8 +16,7 @@ export async function POST(req: NextRequest) {
     const SITE_API_URL = process.env.SITE_API_URL || "https://strattegys.com/api/articles";
     const SITE_PUBLISH_SECRET = process.env.SITE_PUBLISH_SECRET || "strattegys-publish-2026";
 
-    // Forward to strattegys upload endpoint
-    const uploadUrl = SITE_API_URL.replace("/articles", "/articles/upload-image");
+    const uploadUrl = resolveArticlesUploadImageUrl(SITE_API_URL);
     const res = await fetch(uploadUrl, {
       method: "POST",
       headers: {
@@ -26,8 +26,18 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ filename, data }),
     });
 
-    const result = await res.json();
-    return NextResponse.json(result);
+    const text = await res.text();
+    let result: Record<string, unknown>;
+    try {
+      result = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      result = {
+        error: `Site returned non-JSON (HTTP ${res.status})`,
+        bodyPreview: text.slice(0, 200),
+      };
+    }
+
+    return NextResponse.json(result, { status: res.ok ? 200 : res.status });
   } catch (err) {
     console.error("[upload-image proxy]", err);
     return NextResponse.json(

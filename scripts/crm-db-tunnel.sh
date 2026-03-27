@@ -5,14 +5,14 @@
 # Optional env:
 #   CRM_TUNNEL_LOCAL_PORT  default 5433
 #   CRM_TUNNEL_BIND        default 0.0.0.0 (so Docker Desktop can use host.docker.internal)
-#   CRM_SSH_HOST           default 137.184.187.233
+#   CRM_SSH_HOST           default 100.74.54.12 (CC droplet Tailscale — PROJECT-MEMORY). Use 137.184.187.233 if TS down.
 #   CRM_SSH_USER           default root
 #   SSH_IDENTITY_FILE      explicit key (else tries ~/.ssh/hetzner_ed25519, id_ed25519, id_rsa)
 
 set -euo pipefail
 LOCAL_PORT="${CRM_TUNNEL_LOCAL_PORT:-5433}"
 TUNNEL_BIND="${CRM_TUNNEL_BIND:-0.0.0.0}"
-REMOTE_HOST="${CRM_SSH_HOST:-137.184.187.233}"
+REMOTE_HOST="${CRM_SSH_HOST:-100.74.54.12}"
 REMOTE_USER="${CRM_SSH_USER:-root}"
 
 IDENTITY="${SSH_IDENTITY_FILE:-}"

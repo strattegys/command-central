@@ -10,6 +10,7 @@ import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
 import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import TimAgentPanel from "@/components/tim/TimAgentPanel";
+import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import StatusRail from "@/components/StatusRail";
 
@@ -23,6 +24,19 @@ import {
   formatTimWorkQueueContext,
   type TimWorkQueueSelection,
 } from "@/lib/tim-work-context";
+import {
+  formatGhostWorkQueueContext,
+  type GhostWorkQueueSelection,
+} from "@/lib/ghost-work-context";
+import {
+  formatSuziWorkPanelContext,
+  type SuziWorkSubTab,
+} from "@/lib/suzi-work-panel";
+import {
+  formatAgentUiContext,
+  type FridayDashboardTab,
+  type PennyDashboardTab,
+} from "@/lib/agent-ui-context";
 import Link from "next/link";
 
 
@@ -51,6 +65,7 @@ export default function CommandCentralClient() {
     if (agentId === "penny") return "dashboard";
     if (agentId === "suzi") return "reminders";
     if (agentId === "tim") return "messages";
+    if (agentId === "ghost") return "messages";
     if (agentHasKanban(agentId)) return "kanban";
     return "info";
   }
@@ -62,6 +77,8 @@ export default function CommandCentralClient() {
     const agent = paramAgent || "suzi";
     const p = paramPanel as RightPanel | null;
     if (agent === "friday" && p === "tasks") return "dashboard";
+    if (agent === "tim" && p === "kanban") return "messages";
+    if (agent === "ghost" && p === "kanban") return "messages";
     return p || defaultPanelFor(agent);
   });
 
@@ -74,6 +91,10 @@ export default function CommandCentralClient() {
     if (paramPanel && VALID_RIGHT_PANELS.includes(paramPanel as RightPanel)) {
       if (paramAgent === "friday" && paramPanel === "tasks") {
         setRightPanel("dashboard");
+      } else if (paramAgent === "tim" && paramPanel === "kanban") {
+        setRightPanel("messages");
+      } else if (paramAgent === "ghost" && paramPanel === "kanban") {
+        setRightPanel("messages");
       } else {
         setRightPanel(paramPanel as RightPanel);
       }
@@ -82,13 +103,24 @@ export default function CommandCentralClient() {
 
   useEffect(() => {
     setRightPanel((prev) =>
-      prev === "messages" && activeAgent !== "tim" ? defaultPanelFor(activeAgent) : prev
+      prev === "messages" && activeAgent !== "tim" && activeAgent !== "ghost"
+        ? defaultPanelFor(activeAgent)
+        : prev
     );
   }, [activeAgent]);
 
   useEffect(() => {
-    setRightPanel((prev) => (activeAgent === "tim" && prev === "info" ? "messages" : prev));
+    setRightPanel((prev) => {
+      if (activeAgent !== "tim" && activeAgent !== "ghost") return prev;
+      if (prev === "info" || prev === "kanban") return "messages";
+      return prev;
+    });
   }, [activeAgent]);
+
+  useEffect(() => {
+    if (rightPanel !== "kanban") return;
+    if (activeAgent === "tim" || activeAgent === "ghost") setRightPanel("messages");
+  }, [activeAgent, rightPanel]);
 
   useEffect(() => {
     setRightPanel((prev) =>
@@ -100,7 +132,7 @@ export default function CommandCentralClient() {
   useEffect(() => {
     return panelBus.on("tim_human_task_progress", () => {
       if (activeAgentRef.current !== "tim") return;
-      setRightPanel((p) => (p === "info" ? "messages" : p));
+      setRightPanel((p) => (p === "info" || p === "kanban" ? "messages" : p));
     });
   }, []);
   const [mobileShowChat, setMobileShowChat] = useState(false);
@@ -109,7 +141,15 @@ export default function CommandCentralClient() {
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   const [testingTaskCount, setTestingTaskCount] = useState(0);
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
+  const [timPendingQueueCount, setTimPendingQueueCount] = useState(0);
   const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
+  const [ghostContentTaskCount, setGhostContentTaskCount] = useState(0);
+  const [ghostWorkSelection, setGhostWorkSelection] = useState<GhostWorkQueueSelection | null>(null);
+  const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>("punchlist");
+  const [fridayDashboardTab, setFridayDashboardTab] =
+    useState<FridayDashboardTab>("packages");
+  const [pennyDashboardTab, setPennyDashboardTab] =
+    useState<PennyDashboardTab>("packages");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -126,7 +166,7 @@ export default function CommandCentralClient() {
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
-  /** Inworld voiceId from server (registry + INWORLD_VOICE_ID) so local dev matches production. */
+  /** Inworld voiceId from server (per-agent registry only — no global env fallback to avoid wrong voice). */
   const [effectiveTtsVoice, setEffectiveTtsVoice] = useState<string | null>(null);
   const ttsQueueRef = useRef<TtsQueue | null>(null);
   const loadedAgentRef = useRef<string | null>(null);
@@ -261,8 +301,23 @@ export default function CommandCentralClient() {
       // Tim work queue: all human-required tasks on Tim-owned workflows (same rules as /human-tasks).
       // Previously packageStage=ACTIVE could miss rows if package join/stage lagged workflow items.
       fetch("/api/crm/human-tasks?ownerAgent=tim", { credentials: "include" })
+        .then(async (r) => (r.ok ? r.json() : { count: 0, tasks: [] }))
+        .then((d) => {
+          setTimMessagingTaskCount(typeof d.count === "number" ? d.count : 0);
+          const list = Array.isArray(d.tasks) ? d.tasks : [];
+          setTimPendingQueueCount(
+            list.filter((t: { waitingFollowUp?: boolean }) => Boolean(t.waitingFollowUp)).length
+          );
+        })
+        .catch(() => {});
+      fetch(
+        "/api/crm/human-tasks?ownerAgent=ghost&sourceType=content&excludePackageStages=DRAFT,PENDING_APPROVAL",
+        { credentials: "include" }
+      )
         .then(async (r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d) => setTimMessagingTaskCount(d.count || 0))
+        .then((d) => {
+          setGhostContentTaskCount(typeof d.count === "number" ? d.count : 0);
+        })
         .catch(() => {});
     };
     checkTasks();
@@ -272,6 +327,10 @@ export default function CommandCentralClient() {
 
   useEffect(() => {
     if (activeAgent !== "tim") setTimWorkSelection(null);
+  }, [activeAgent]);
+
+  useEffect(() => {
+    if (activeAgent !== "ghost") setGhostWorkSelection(null);
   }, [activeAgent]);
 
   // Load last messages for all agents on mount + initialize lastSeenCounts
@@ -344,10 +403,10 @@ export default function CommandCentralClient() {
           registryVoiceId?: string | null;
           envFallbackVoiceId?: string | null;
         };
+        // Only use per-agent registry voices. INWORLD_VOICE_ID is often Suzi (Olivia) — applying it to
+        // agents without ttsVoice (e.g. Ghost) produced the wrong read-aloud voice.
         const v =
-          (typeof vr.registryVoiceId === "string" && vr.registryVoiceId.trim()) ||
-          (typeof vr.envFallbackVoiceId === "string" && vr.envFallbackVoiceId.trim()) ||
-          null;
+          (typeof vr.registryVoiceId === "string" && vr.registryVoiceId.trim()) || null;
         setEffectiveTtsVoice(v);
       })
       .catch(() => {
@@ -397,9 +456,31 @@ export default function CommandCentralClient() {
           message: string;
           agent: string;
           workQueueContext?: string;
+          uiContext?: string;
         } = { message: apiMessage, agent: activeAgent };
         if (activeAgent === "tim" && timWorkSelection) {
           body.workQueueContext = formatTimWorkQueueContext(timWorkSelection);
+        }
+        if (activeAgent === "ghost" && ghostWorkSelection) {
+          body.workQueueContext = formatGhostWorkQueueContext(ghostWorkSelection);
+        }
+        if (activeAgent === "suzi") {
+          body.uiContext = formatSuziWorkPanelContext({
+            workPanelOpen: rightPanel === "reminders",
+            subTab: suziWorkSubTab,
+          });
+        } else {
+          const agentUi = formatAgentUiContext({
+            agentId: activeAgent,
+            rightPanel,
+            timHasWorkQueueSelection:
+              activeAgent === "tim" && timWorkSelection != null,
+            ghostHasWorkQueueSelection:
+              activeAgent === "ghost" && ghostWorkSelection != null,
+            fridayTab: fridayDashboardTab,
+            pennyTab: pennyDashboardTab,
+          });
+          if (agentUi) body.uiContext = agentUi;
         }
 
         const res = await fetch("/api/chat/stream", {
@@ -534,7 +615,17 @@ export default function CommandCentralClient() {
         setIsLoading(false);
       }
     },
-    [isLoading, activeAgent, replyTo, effectiveTtsVoice, agent.ttsVoice, timWorkSelection]
+    [
+      isLoading,
+      activeAgent,
+      replyTo,
+      effectiveTtsVoice,
+      agent.ttsVoice,
+      timWorkSelection,
+      ghostWorkSelection,
+      rightPanel,
+      suziWorkSubTab,
+    ]
   );
 
   const stopResponse = useCallback(() => {
@@ -609,7 +700,8 @@ export default function CommandCentralClient() {
                           style={{
                             background: !a.online
                               ? "#555"
-                              : a.id === "tim" && timMessagingTaskCount > 0
+                              : (a.id === "tim" && timMessagingTaskCount > 0) ||
+                                  (a.id === "ghost" && ghostContentTaskCount > 0)
                                 ? "#F59E0B"
                                 : "#1D9E75",
                           }}
@@ -669,7 +761,8 @@ export default function CommandCentralClient() {
               style={{
                 background: !agent.online
                   ? "#555"
-                  : activeAgent === "tim" && timMessagingTaskCount > 0
+                  : (activeAgent === "tim" && timMessagingTaskCount > 0) ||
+                      (activeAgent === "ghost" && ghostContentTaskCount > 0)
                     ? "#F59E0B"
                     : "#1D9E75",
               }}
@@ -712,6 +805,7 @@ export default function CommandCentralClient() {
           pendingTaskCount={pendingTaskCount}
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
+          ghostContentTaskCount={ghostContentTaskCount}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -761,7 +855,7 @@ export default function CommandCentralClient() {
               </button>
             )}
             {/* Mobile only: kanban link */}
-            {agentHasKanban(activeAgent) && (
+            {agentHasKanban(activeAgent) && activeAgent !== "tim" && activeAgent !== "ghost" && (
               <Link
                 href="/kanban"
                 className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
@@ -845,7 +939,8 @@ export default function CommandCentralClient() {
                 style={{
                   background: !agent.online
                     ? "#555"
-                    : activeAgent === "tim" && timMessagingTaskCount > 0
+                    : (activeAgent === "tim" && timMessagingTaskCount > 0) ||
+                        (activeAgent === "ghost" && ghostContentTaskCount > 0)
                       ? "#F59E0B"
                       : "#1D9E75",
                 }}
@@ -855,22 +950,16 @@ export default function CommandCentralClient() {
           </div>
           {/* Panel nav icons - right of text */}
           <div className="flex items-center gap-1 ml-6">
-            {agentHasKanban(activeAgent) && (
+            {agentHasKanban(activeAgent) && activeAgent !== "tim" && activeAgent !== "ghost" && (
               <button
                 type="button"
-                onClick={() =>
-                  setRightPanel(activeAgent === "tim" ? "messages" : "kanban")
-                }
+                onClick={() => setRightPanel("kanban")}
                 className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                  activeAgent === "tim"
-                    ? rightPanel === "messages" || rightPanel === "kanban"
-                      ? "text-[var(--accent-green)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                    : rightPanel === "kanban"
-                      ? "text-[var(--accent-green)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  rightPanel === "kanban"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title={activeAgent === "tim" ? "Work queue & pipeline" : "Pipeline board"}
+                title="Pipeline board"
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="5" height="18" rx="1" />
@@ -897,6 +986,48 @@ export default function CommandCentralClient() {
                 </svg>
               </button>
             )}
+            {activeAgent === "tim" && (
+              <button
+                type="button"
+                onClick={() => setRightPanel("messages")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "messages"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Tim work panel — Active Work Queue & Pending Work Queue"
+              >
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </button>
+            )}
+            {activeAgent === "ghost" && (
+              <button
+                type="button"
+                onClick={() => setRightPanel("messages")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "messages"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Ghost work panel — content queue & workspace"
+              >
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </button>
+            )}
             {activeAgent === "suzi" && (
               <>
                 <button
@@ -906,7 +1037,7 @@ export default function CommandCentralClient() {
                       ? "text-[var(--accent-green)]"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
-                  title="Reminders"
+                  title="Suzi work — Punch list, Reminders, Notes"
                 >
                   <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -937,12 +1068,16 @@ export default function CommandCentralClient() {
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">
-          {activeAgent === "tim" && (rightPanel === "messages" || rightPanel === "kanban") ? (
+          {activeAgent === "tim" && rightPanel === "messages" ? (
             <TimAgentPanel
-              tab={rightPanel === "kanban" ? "kanban" : "messages"}
-              onTab={(t) => setRightPanel(t)}
               messageQueueCount={timMessagingTaskCount}
+              pendingQueueCount={timPendingQueueCount}
               onTimWorkSelectionChange={setTimWorkSelection}
+            />
+          ) : activeAgent === "ghost" && rightPanel === "messages" ? (
+            <GhostAgentPanel
+              contentQueueCount={ghostContentTaskCount}
+              onGhostWorkSelectionChange={setGhostWorkSelection}
             />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
@@ -956,7 +1091,10 @@ export default function CommandCentralClient() {
           ) : rightPanel === "dashboard" && activeAgent === "penny" ? (
             <PennyDashboardPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
-            <SuziRemindersPanel onClose={() => setRightPanel("info")} />
+            <SuziRemindersPanel
+              onClose={() => setRightPanel("info")}
+              onSubTabChange={setSuziWorkSubTab}
+            />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}
@@ -968,6 +1106,7 @@ export default function CommandCentralClient() {
           pendingTaskCount={pendingTaskCount}
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
+          ghostContentTaskCount={ghostContentTaskCount}
         />
       </div>
 

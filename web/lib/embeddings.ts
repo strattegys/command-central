@@ -1,5 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 
+/**
+ * Suzi vector memory (`_memory.embedding`, pgvector 768). Uses Gemini because GroqCloud
+ * does not expose text-embedding models on standard developer keys (verified: /v1/models has none).
+ * When Groq ships embeddings with a 768-dim model for your account, you can add a Groq path here.
+ */
+
 const EMBEDDING_MODEL = "gemini-embedding-001";
 
 let _ai: GoogleGenAI | null = null;

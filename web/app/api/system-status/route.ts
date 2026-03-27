@@ -39,7 +39,7 @@ function buildSystemAlerts(): SystemStatusAlert[] {
   const voiced = agentsWithTtsVoice();
   const names = voiced.map((a) => a.name).join(", ");
   const hasInworld = !!process.env.INWORLD_TTS_KEY?.trim();
-  const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
+  const hasGroq = !!process.env.GROQ_API_KEY?.trim();
 
   const voiceMap = ttsVoiceRegistrySummary();
 
@@ -52,13 +52,13 @@ function buildSystemAlerts(): SystemStatusAlert[] {
     });
   }
 
-  if (voiced.length > 0 && hasInworld && !hasGemini) {
+  if (voiced.length > 0 && hasInworld && !hasGroq) {
     alerts.push({
-      id: "tts_summarize_gemini",
+      id: "tts_summarize_groq",
       severity: "info",
       title: "Long messages: TTS summarization",
       message:
-        "GEMINI_API_KEY is unset. Short replies still speak; very long replies use a simple truncation instead of Gemini summarization before TTS.",
+        "GROQ_API_KEY is unset. Short replies still speak; very long replies use a simple truncation instead of Groq summarization before TTS.",
     });
   }
 
@@ -329,7 +329,7 @@ export async function GET() {
     detail: hasInworldKey
       ? [
           registryVoices ? `voices ${registryVoices}` : null,
-          envVoice ? `INWORLD_VOICE_ID=${envVoice}` : "per-agent voice from registry (Suzi=Olivia, Tim=Timothy)",
+          envVoice ? `INWORLD_VOICE_ID=${envVoice}` : "per-agent voice from registry (see agent-registry ttsVoice)",
         ]
           .filter(Boolean)
           .join(" · ")

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readFileSync } from "fs";
 import { createHash } from "crypto";
-import { GoogleGenAI } from "@google/genai";
+import { groqCompletion } from "@/lib/groq-completion";
 import { getAgentConfig } from "@/lib/agent-config";
 
 interface CachedSummary {
@@ -33,22 +33,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-    const result = await client.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `You are summarizing an AI agent for a dashboard card. Given the agent's system prompt, tools, and config below, write a 1-2 sentence summary of what this agent does and its key capabilities. Be concise and direct. Do not start with "This agent" — start with a verb or the agent's purpose.
-
-Tools: ${config.tools.join(", ")}
+    const system =
+      'You summarize an AI agent for a dashboard card. Reply with 1-2 sentences only: what it does and key capabilities. Be concise. Do not start with "This agent" — start with a verb or the purpose.';
+    const user = `Tools: ${config.tools.join(", ")}
 
 System prompt:
-${promptContent.substring(0, 3000)}`,
-    });
+${promptContent.substring(0, 3000)}`;
 
-    const summary = result.text?.trim() || "";
+    const summary = (await groqCompletion(system, user, { max_tokens: 256, temperature: 0.35 })) || "";
     summaryCache.set(agentId, { summary, promptHash: currentHash });
     return NextResponse.json({ summary });
   } catch (err) {
-    console.error("[agent-summary] Gemini call failed:", err);
+    console.error("[agent-summary] Groq call failed:", err);
     return NextResponse.json({ summary: "" });
   }
 }

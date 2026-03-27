@@ -108,20 +108,12 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
             href="/?agent=tim&panel=messages"
             scroll={false}
             className="text-[10px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline"
-            title="Opens Tim’s work queue (messages, approvals, next-contact slots)"
+            title="Opens Tim’s work panel (Active Work Queue + Pending Work Queue tabs)"
           >
-            Work in Tim → Work queue
+            Work in Tim
             {awaitingContactTotal > 0
               ? ` (${awaitingContactTotal} awaiting contact)`
               : ` (${timHumanStagesTotal} task${timHumanStagesTotal !== 1 ? "s" : ""})`}
-          </Link>
-          <Link
-            href="/?agent=tim&panel=kanban"
-            scroll={false}
-            className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:underline"
-            title="Pick your workflow in the dropdown to see cards by stage"
-          >
-            Pipeline board
           </Link>
         </div>
       )}

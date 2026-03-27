@@ -1,7 +1,9 @@
 # Local development stack
 # Two-step local data platform (CRM Postgres on droplet):
 #   1) Start SSH tunnel — scripts/crm-db-tunnel.ps1 or scripts/crm-db-tunnel.sh
-#      (forwards 0.0.0.0:5433 -> droplet:5432 so Docker can reach it via host.docker.internal)
+#      (forwards 0.0.0.0:5433 -> droplet:5432 so Docker can reach it via host.docker.internal).
+#      Over Tailscale: set CRM_SSH_HOST to the CC droplet 100.x or MagicDNS (see PROJECT-MEMORY).
+#      On the server, run tools/expose-crm-db-tailscale.sh so :5432 listens on the tailnet IP too.
 #   2) docker compose -f docker-compose.dev.yml up
 ## Hot reload works via volume mount of web/ directory.
 # Runs on http://localhost:3001

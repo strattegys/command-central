@@ -30,13 +30,17 @@ Include:
 - **How you know them** and any context that should shape the message
 - Optional: company, role, or notes from a recent conversation
 
-For the fastest CRM updates, use **Name:**, **Company:**, and **Title:** lines, or paste a **LinkedIn profile URL** — when Unipile is configured on the server, we pull **name, headline, and current company** from that profile into the CRM contact.
+For the fastest CRM updates, use **Name:**, **Company:**, and **Title:** lines (in that order is easiest to parse), or paste a **LinkedIn profile URL** — when Unipile is configured on the server, we pull **name, headline, and current company** from that profile into the CRM contact.
+
+**After you submit:** In the **Researching** step, Tim must **look this person up in Twenty CRM** (by name / LinkedIn / email). If they are **not** in the CRM, he **creates** the contact; if they **are**, he **updates** name, company, and title on their record. The **Name / Company / Title** lines on your queue card come from that CRM person — if Tim skips this, the card stays empty even when the message draft is ready.
 
 Use the **Package raise** tab for campaign rules (tone, boundaries). Use the main **Tim** chat (left) to refine this input — it sees this work item.`;
 
-const IDEA_DIRECTIONS = `**Describe your article idea** — topic, angle, audience, or rough concept.
+function ideaDirectionsMarkdown(chatAgentLabel: string): string {
+  return `**Describe your article idea** — topic, angle, audience, or rough concept.
 
-Use other tabs for prior notes. Use the main **Tim** chat for help — it sees this work item.`;
+Use other tabs for prior notes. Use the main **${chatAgentLabel}** chat for help — it sees this work item.`;
+}
 
 interface TimIntakeWorkspaceProps {
   task: MessagingTask;
@@ -44,6 +48,8 @@ interface TimIntakeWorkspaceProps {
   onSubmitInput: (notes: string) => Promise<void>;
   /** Same document icon row as ArtifactViewer — warm-outreach contact lines under the workflow title. */
   documentHeaderDetail?: ReactNode;
+  /** Sidebar agent name in the idea-intake copy (default Tim; use Ghost for Ghost’s queue). */
+  chatAgentLabel?: string;
 }
 
 /**
@@ -54,6 +60,7 @@ export default function TimIntakeWorkspace({
   resolving,
   onSubmitInput,
   documentHeaderDetail,
+  chatAgentLabel = "Tim",
 }: TimIntakeWorkspaceProps) {
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,7 +227,9 @@ export default function TimIntakeWorkspace({
                 What to do
               </p>
               <div className="prose prose-invert prose-sm max-w-none text-[var(--text-secondary)]">
-                <MarkdownRenderer content={isAwaiting ? AWAITING_DIRECTIONS : IDEA_DIRECTIONS} />
+                <MarkdownRenderer
+                  content={isAwaiting ? AWAITING_DIRECTIONS : ideaDirectionsMarkdown(chatAgentLabel)}
+                />
               </div>
               {task.humanAction ? (
                 <p className="text-[11px] text-[var(--text-primary)] border-t border-[var(--border-color)]/60 pt-2">

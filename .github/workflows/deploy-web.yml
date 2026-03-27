@@ -8,6 +8,7 @@ on:
       - 'agents/**'
       - 'Caddyfile'
       - 'docker-compose.yml'
+      - 'docker/**'
       - 'scripts/**'
       - '.dockerignore'
       - '.github/workflows/deploy-web.yml'
@@ -89,6 +90,23 @@ jobs:
 
           echo "Starting containers..."
           $DC up -d
+
+          echo "Waiting for CRM Postgres (pgvector + _memory)..."
+          for i in $(seq 1 90); do
+            if $DC exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          if ! $DC exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
+            echo "ERROR: crm-db did not become ready"
+            $DC logs --tail=40 crm-db
+            exit 1
+          fi
+
+          echo "Applying idempotent vector memory migration (extension + _memory)..."
+          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+            < web/scripts/migrate-vector-memory.sql
 
           echo "Waiting for server to start..."
           sleep 8

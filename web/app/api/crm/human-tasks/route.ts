@@ -22,6 +22,8 @@ import { getWarmOutreachDailyProgressForTim } from "@/lib/warm-outreach-daily-pr
  * - packageStage — filter by _package.stage
  * - ownerAgent — filter workflows by owner (e.g. tim)
  * - messagingOnly — only messaging-related item stages
+ * - sourceType — filter workflow items by source (e.g. `content` for Ghost’s content queue)
+ * - excludePackageStages — comma-separated package stages to omit (e.g. `DRAFT,PENDING_APPROVAL` so planner draft/testing rows don’t appear in agent queues)
  */
 const MESSAGING_ITEM_STAGES = new Set([
   "INITIATED",
@@ -159,6 +161,14 @@ function registryHumanMeta(
 export async function GET(req: NextRequest) {
   const packageStageFilter = req.nextUrl.searchParams.get("packageStage");
   const ownerAgentFilter = req.nextUrl.searchParams.get("ownerAgent")?.trim().toLowerCase() || null;
+  const sourceTypeFilter = req.nextUrl.searchParams.get("sourceType")?.trim().toLowerCase() || null;
+  const excludePackageStagesRaw = req.nextUrl.searchParams.get("excludePackageStages");
+  const excludePackageStages = excludePackageStagesRaw
+    ? excludePackageStagesRaw
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => s.length > 0)
+    : [];
   const messagingOnly =
     req.nextUrl.searchParams.get("messagingOnly") === "true" ||
     req.nextUrl.searchParams.get("messagingOnly") === "1";
@@ -171,6 +181,11 @@ export async function GET(req: NextRequest) {
       conditions.push(`LOWER(TRIM(COALESCE(w."ownerAgent"::text, ''))) = $${params.length}`);
     }
 
+    if (sourceTypeFilter) {
+      params.push(sourceTypeFilter);
+      conditions.push(`LOWER(TRIM(COALESCE(wi."sourceType"::text, ''))) = $${params.length}`);
+    }
+
     if (packageStageFilter) {
       params.push(packageStageFilter.toUpperCase());
       conditions.push(
@@ -178,9 +193,21 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const joinPackage = packageStageFilter
-      ? 'LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL'
-      : "";
+    if (excludePackageStages.length > 0) {
+      const start = params.length;
+      for (const st of excludePackageStages) {
+        params.push(st);
+      }
+      const placeholders = excludePackageStages.map((_, i) => `$${start + i + 1}`).join(", ");
+      conditions.push(
+        `(w."packageId" IS NULL OR UPPER(TRIM(COALESCE(p.stage::text, ''))) NOT IN (${placeholders}))`
+      );
+    }
+
+    const joinPackage =
+      packageStageFilter || excludePackageStages.length > 0
+        ? 'LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL'
+        : "";
 
     let useHumanTaskOpenCol = true;
     let useWorkflowItemTypeCol = true;

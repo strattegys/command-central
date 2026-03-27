@@ -38,9 +38,11 @@ interface PackageDetailCardProps {
    * When omitted, falls back to: collapsed iff stage is DRAFT.
    */
   initialCollapsed?: boolean;
+  /** After PATCH (rename, etc.) refresh the planner list */
+  onPackageMutate?: () => void;
 }
 
-export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDetailCardProps) {
+export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMutate }: PackageDetailCardProps) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof initialCollapsed === "boolean") return initialCollapsed;
     const stage = String(pkg.stage ?? "")
@@ -75,6 +77,49 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       return next;
     });
   }, [pkg.id]);
+  const [renamingPackage, setRenamingPackage] = useState(false);
+  const [nameDraft, setNameDraft] = useState(pkg.name);
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNameDraft(pkg.name);
+    setRenamingPackage(false);
+    setNameError(null);
+  }, [pkg.id, pkg.name]);
+
+  const savePackageName = useCallback(async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      setNameError("Name cannot be empty");
+      return;
+    }
+    if (trimmed === pkg.name.trim()) {
+      setRenamingPackage(false);
+      return;
+    }
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const r = await fetch("/api/crm/packages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: pkg.id, name: trimmed }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) {
+        setNameError(data.error || `Failed (${r.status})`);
+        return;
+      }
+      setRenamingPackage(false);
+      panelBus.emit("package_manager");
+      onPackageMutate?.();
+    } finally {
+      setSavingName(false);
+    }
+  }, [nameDraft, onPackageMutate, pkg.id, pkg.name]);
+
   const [artifactView, setArtifactView] = useState<{
     workflowId?: string;
     itemType?: "person" | "content";
@@ -248,7 +293,11 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
       const res = await fetch("/api/crm/packages/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: pkg.id, targetStage: "ACTIVE" }),
+        body: JSON.stringify({
+          packageId: pkg.id,
+          targetStage: "ACTIVE",
+          useFakeData,
+        }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -333,45 +382,117 @@ export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDeta
     <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2 flex items-center justify-between gap-2">
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="min-w-0 flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--text-tertiary)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            className={`shrink-0 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+        <div className="min-w-0 flex-1 flex items-start gap-1.5">
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="min-w-0 flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity flex-1"
           >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-          <div className="min-w-0">
-            <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
-              {pkg.packageNumber != null && !Number.isNaN(pkg.packageNumber) && (
-                <span className="text-[var(--text-tertiary)] font-bold tabular-nums mr-1">
-                  #{pkg.packageNumber}
-                </span>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-tertiary)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className={`shrink-0 transition-transform mt-0.5 ${isCollapsed ? "-rotate-90" : ""}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+            <div className="min-w-0 flex-1">
+              {renamingPackage ? (
+                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    className="w-full text-xs font-semibold bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-1.5 py-1 text-[var(--text-primary)]"
+                    disabled={savingName}
+                    autoFocus
+                  />
+                  {nameError ? (
+                    <p className="text-[9px] text-red-400/90">{nameError}</p>
+                  ) : null}
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={savingName}
+                      onClick={savePackageName}
+                      className="text-[9px] px-2 py-0.5 rounded bg-[var(--accent-green)]/20 text-[var(--accent-green)] font-semibold border border-[var(--accent-green)]/40"
+                    >
+                      {savingName ? "…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingName}
+                      onClick={() => {
+                        setNameDraft(pkg.name);
+                        setRenamingPackage(false);
+                        setNameError(null);
+                      }}
+                      className="text-[9px] px-2 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-tertiary)]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                    {pkg.packageNumber != null && !Number.isNaN(pkg.packageNumber) && (
+                      <span className="text-[var(--text-tertiary)] font-bold tabular-nums mr-1">
+                        #{pkg.packageNumber}
+                      </span>
+                    )}
+                    {pkg.name}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] truncate">{pkg.templateId}</div>
+                </>
               )}
-              {pkg.name}
             </div>
-            <div className="text-[10px] text-[var(--text-tertiary)] truncate">
-              {pkg.templateId}
-            </div>
-          </div>
-        </button>
+          </button>
+          {!renamingPackage && (
+            <button
+              type="button"
+              title="Rename package"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRenamingPackage(true);
+              }}
+              className="shrink-0 p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {pkgStage === "DRAFT" && (
-            <button onClick={handleTest} className={btnWarm}>
-              Test
-            </button>
+            <>
+              <label
+                className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none"
+                title="Only for Draft / Testing. Unchecked = real Ghost spec + article (Anthropic). Checked = template placeholders. Active packages always use real APIs."
+              >
+                <input
+                  type="checkbox"
+                  checked={useFakeData}
+                  onChange={(e) => setUseFakeData(e.target.checked)}
+                  className="w-3 h-3 rounded border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--accent-green)]"
+                />
+                Fake Data
+              </label>
+              <button onClick={handleTest} className={btnWarm}>
+                Test
+              </button>
+            </>
           )}
           {pkgStage === "PENDING_APPROVAL" && (
             <>
-              <label className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none">
+              <label
+                className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none"
+                title="Only while testing. Unchecked = real APIs. Checked = placeholders. Goes away once the package is Active."
+              >
                 <input
                   type="checkbox"
                   checked={useFakeData}
