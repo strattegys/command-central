@@ -5,6 +5,7 @@
 
 import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool } from "./tools";
+import { toolArgumentsToStringRecord } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
@@ -192,10 +193,10 @@ export async function chatStreamOllama(
     const toolNames: string[] = [];
     for (const tc of response.tool_calls) {
       const toolName = tc.function.name;
-      const stringArgs: Record<string, string> = {};
-      for (const [k, v] of Object.entries(tc.function.arguments || {})) {
-        stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
-      }
+      const stringArgs = toolArgumentsToStringRecord(
+        toolName,
+        tc.function.arguments as unknown
+      );
 
       console.log(
         `[ollama] tool_call: ${toolName}`,
@@ -299,10 +300,10 @@ export async function autonomousChatOllama(
       });
 
       for (const tc of response.tool_calls) {
-        const stringArgs: Record<string, string> = {};
-        for (const [k, v] of Object.entries(tc.function.arguments || {})) {
-          stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
-        }
+        const stringArgs = toolArgumentsToStringRecord(
+          tc.function.name,
+          tc.function.arguments as unknown
+        );
         const result = await executeTool(
           tc.function.name,
           stringArgs,

@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool, TOOL_REGISTRY } from "./tools";
+import { toolArgumentsToStringRecord } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
@@ -144,22 +145,26 @@ export async function chat(
       // Track delegate_task calls for attribution
       for (const fc of validCalls) {
         if (fc.functionCall?.name === "delegate_task") {
-          const args = fc.functionCall.args as Record<string, string>;
-          if (args?.agent) delegatedAgents.add(args.agent);
+          const args = toolArgumentsToStringRecord(
+            "delegate_task",
+            fc.functionCall.args
+          );
+          if (args.agent) delegatedAgents.add(args.agent);
         }
       }
 
       // Execute valid calls; return errors for invalid ones
       const allResponses = [];
       for (const fc of validCalls) {
-        const args = (fc.functionCall!.args as Record<string, string>) || {};
+        const name = fc.functionCall!.name!;
+        const args = toolArgumentsToStringRecord(name, fc.functionCall!.args);
         const result = await executeTool(
-          fc.functionCall!.name!,
+          name,
           args,
           userMessage,
           agentId
         );
-        executedTools.push({ name: fc.functionCall!.name!, args, result });
+        executedTools.push({ name, args, result });
         allResponses.push({
           functionResponse: {
             name: fc.functionCall!.name!,
@@ -316,9 +321,11 @@ export async function autonomousChat(
 
       const allResponses = [];
       for (const fc of validCalls) {
+        const name = fc.functionCall!.name!;
+        const args = toolArgumentsToStringRecord(name, fc.functionCall!.args);
         const result = await executeTool(
-          fc.functionCall!.name!,
-          (fc.functionCall!.args as Record<string, string>) || {},
+          name,
+          args,
           "[autonomous-heartbeat]",
           agentId
         );
@@ -501,8 +508,11 @@ export async function chatStream(
     // Track delegate_task calls for attribution
     for (const fc of validCalls) {
       if (fc.functionCall?.name === "delegate_task") {
-        const args = fc.functionCall.args as Record<string, string>;
-        if (args?.agent) delegatedAgents.add(args.agent);
+        const args = toolArgumentsToStringRecord(
+          "delegate_task",
+          fc.functionCall.args
+        );
+        if (args.agent) delegatedAgents.add(args.agent);
       }
     }
 
@@ -510,7 +520,7 @@ export async function chatStream(
     const allResponses = [];
     for (const fc of validCalls) {
       const toolName = fc.functionCall!.name!;
-      const args = (fc.functionCall!.args as Record<string, string>) || {};
+      const args = toolArgumentsToStringRecord(toolName, fc.functionCall!.args);
       const result = await executeTool(
         toolName,
         args,

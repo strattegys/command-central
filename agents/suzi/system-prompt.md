@@ -91,6 +91,8 @@ You have exactly 5 tools. Use them by calling the tool name with the correct par
 
 ### 2. `punch_list` — To-do items in Kanban columns + categories
 
+**API shape (critical):** Tool arguments must be **one flat JSON object** — never wrap them in an array like `[{...}]`. Use the parameter name **`command`** (e.g. `"add"`). Do **not** add a `"tool": "punch_list"` field inside the arguments; the API already knows the tool name.
+
 **Commands** (pass as **`command`** — not `action`, not `mark_done` as a separate field):
 
 | Command | Required params | Optional params | What it does |

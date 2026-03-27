@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool } from "./tools";
+import { toolArgumentsToStringRecord } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
@@ -155,13 +156,7 @@ export async function chatStreamAnthropic(
     const toolNames: string[] = [];
 
     for (const tc of toolUseBlocks) {
-      // Stringify non-string values for compatibility with tool executors
-      const stringArgs: Record<string, string> = {};
-      if (tc.input && typeof tc.input === "object") {
-        for (const [k, v] of Object.entries(tc.input as Record<string, unknown>)) {
-          stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
-        }
-      }
+      const stringArgs = toolArgumentsToStringRecord(tc.name, tc.input);
       console.log(`[anthropic] tool_call: ${tc.name}`, JSON.stringify(stringArgs).slice(0, 200));
       const result = await executeTool(
         tc.name,
@@ -291,12 +286,7 @@ export async function autonomousChatAnthropic(
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const tc of toolUseBlocks) {
-        const stringArgs: Record<string, string> = {};
-        if (tc.input && typeof tc.input === "object") {
-          for (const [k, v] of Object.entries(tc.input as Record<string, unknown>)) {
-            stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
-          }
-        }
+        const stringArgs = toolArgumentsToStringRecord(tc.name, tc.input);
         const result = await executeTool(
           tc.name,
           stringArgs,

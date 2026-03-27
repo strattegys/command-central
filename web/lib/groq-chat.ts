@@ -5,6 +5,7 @@
 
 import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool } from "./tools";
+import { parseGroqToolArgumentsJson } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { consolidateSession } from "./memory";
@@ -563,23 +564,18 @@ export async function chatStreamGroq(
       tool_calls: response.tool_calls,
     });
 
-    // Track delegate_task calls
-    for (const tc of response.tool_calls) {
-      const parsed = JSON.parse(tc.function.arguments || "{}");
-      if (tc.function.name === "delegate_task" && parsed?.agent) {
-        delegatedAgents.add(parsed.agent);
-      }
-    }
-
     // Execute tool calls and send results back (with dedup)
     const toolNames: string[] = [];
     const batchToolBodies: string[] = [];
     for (const tc of response.tool_calls) {
       const toolName = tc.function.name;
-      const parsed = JSON.parse(tc.function.arguments || "{}");
-      const stringArgs: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
+      const stringArgs = parseGroqToolArgumentsJson(
+        toolName,
+        tc.function.arguments || "{}"
+      );
+
+      if (toolName === "delegate_task" && stringArgs.agent) {
+        delegatedAgents.add(stringArgs.agent);
       }
 
       // Dedup: skip if same tool+args already executed this turn
@@ -753,11 +749,10 @@ export async function autonomousChatGroq(
       });
 
       for (const tc of response.tool_calls) {
-        const parsed = JSON.parse(tc.function.arguments || "{}");
-        const stringArgs: Record<string, string> = {};
-        for (const [k, v] of Object.entries(parsed)) {
-          stringArgs[k] = typeof v === "string" ? v : JSON.stringify(v);
-        }
+        const stringArgs = parseGroqToolArgumentsJson(
+          tc.function.name,
+          tc.function.arguments || "{}"
+        );
         const result = await executeTool(
           tc.function.name,
           stringArgs,
