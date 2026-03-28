@@ -25,7 +25,7 @@ async function resolveIntakeTarget(
   if (n == null) {
     return {
       error:
-        "Provide either id (UUID from list) or itemNumber (1 = top card in Intake, same as # on the card).",
+        "Provide either id (UUID from list) or itemNumber (#1 = oldest in queue / FIFO, same as # on the card).",
     };
   }
   const fq = typeof args.filterQuery === "string" ? args.filterQuery.trim() : "";
@@ -80,7 +80,7 @@ const tool: ToolModule = {
         itemNumber: {
           type: "number",
           description:
-            "1-based index as shown on Intake cards (#1 = first/top). Use for update/delete when the user says “intake 2” or “item #3”.",
+            "1-based FIFO index as on Intake cards (#1 = oldest / next to work). Use for update/delete when the user says “intake 2” or “item #3”.",
         },
         filterQuery: {
           type: "string",

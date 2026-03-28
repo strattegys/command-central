@@ -67,7 +67,7 @@ export default function IntakeCard({ item, displayNumber, onDelete }: IntakeCard
           {displayNumber != null && (
             <span
               className="shrink-0 text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)]"
-              title={`Intake #${displayNumber} — e.g. ask Suzi to delete intake item ${displayNumber} or move it to punch list`}
+              title={`Intake #${displayNumber} (FIFO) — e.g. ask Suzi to delete intake item ${displayNumber} or move it to punch list`}
             >
               #{displayNumber}
             </span>

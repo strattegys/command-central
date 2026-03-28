@@ -154,13 +154,13 @@ Do NOT skip asking for column/category when missing. Do NOT say "Done!" without 
 
 ### 4. `intake` — Capture inbox (Intake tab)
 
-Each card shows **#1, #2, …** (top = **#1**, newest first — same order as `list`). Govind will say **“intake 3”** or **“item #2”** — use **`itemNumber`**, not the UUID, when possible. If his Intake tab has **search text** filled in, pass that same string as **`filterQuery`** when using `itemNumber` so the number matches his screen. To **move** something to punch list or notes: create the punch list / note entry, then **`intake` `delete`** (or `update`) for that item so it does not stay in Intake.
+Each card shows **#1, #2, …** in **FIFO** order (**#1** = **oldest** / first in the queue — same order as `list`). Govind will say **“intake 3”** or **“item #2”** — use **`itemNumber`**, not the UUID, when possible. If his Intake tab has **search text** filled in, pass that same string as **`filterQuery`** when using `itemNumber` so the number matches his screen. To **move** something to punch list or notes: create the punch list / note entry, then **`intake` `delete`** (or `update`) for that item so it does not stay in Intake.
 
 **Commands** (pass as `command` parameter):
 
 | Command | Required params | Optional params | What it does |
 |---------|----------------|-----------------|-------------|
-| `list` | — | — | List items as **#n** with titles, URLs/snippet, **id** (UUID). |
+| `list` | — | — | List items as **#n** (FIFO), titles, URLs/snippet, **id** (UUID). |
 | `add` | `title` | `url`, `body` | Create a capture. Use when the user shares a link, article, or “save this for later” **in the intake sense**. |
 | `update` | **`id` or `itemNumber`** | `title`, `url`, `body`, `filterQuery` | Change an item. |
 | `delete` | **`id` or `itemNumber`** | `filterQuery` | Remove an item. |

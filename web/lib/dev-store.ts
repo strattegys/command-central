@@ -108,8 +108,13 @@ export async function devQuery(sql: string, params?: unknown[]): Promise<Row[]> 
     return hit ? [{ x: 1 }] : [];
   }
 
-  // SELECT FROM "_intake" (list)
-  if (s.includes('FROM "_intake"') && s.includes("SELECT")) {
+  // COUNT FROM "_intake"
+  if (s.includes('FROM "_intake"') && s.includes("COUNT") && s.includes("SELECT")) {
+    return countIntakeRows(p);
+  }
+
+  // SELECT FROM "_intake" (list; not COUNT aggregate)
+  if (s.includes('FROM "_intake"') && s.includes("SELECT") && !s.includes("COUNT(")) {
     return selectIntake(p);
   }
 
@@ -458,26 +463,50 @@ function selectArtifacts(sql: string, params: unknown[]): Row[] {
   return filtered;
 }
 
-// ─── SELECT intake (Suzi) ───────────────────────────────────────
+// ─── SELECT intake (Suzi) — FIFO by createdAt, optional LIMIT/OFFSET ───────────
 
-function selectIntake(params: unknown[]): Row[] {
-  let rows = loadTable("intake").filter((r) => !r.deletedAt);
+function filterIntakeBySearch(rows: Row[], searchPattern: string): Row[] {
+  const inner = searchPattern.replace(/^%|%$/g, "").toLowerCase();
+  if (!inner) return rows;
+  return rows.filter(
+    (r) =>
+      String(r.title || "").toLowerCase().includes(inner) ||
+      String(r.body || "").toLowerCase().includes(inner) ||
+      String(r.url || "").toLowerCase().includes(inner)
+  );
+}
+
+function countIntakeRows(params: unknown[]): Row[] {
   const agentId = String(params[0] || "");
+  let rows = loadTable("intake").filter((r) => !r.deletedAt);
   rows = rows.filter((r) => r.agentId === agentId);
   if (params.length >= 2 && typeof params[1] === "string") {
-    const pat = params[1];
-    const inner = pat.replace(/^%|%$/g, "").toLowerCase();
-    if (inner) {
-      rows = rows.filter(
-        (r) =>
-          String(r.title || "").toLowerCase().includes(inner) ||
-          String(r.body || "").toLowerCase().includes(inner) ||
-          String(r.url || "").toLowerCase().includes(inner)
-      );
-    }
+    rows = filterIntakeBySearch(rows, String(params[1]));
   }
-  rows.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-  return rows.slice(0, 200);
+  return [{ count: String(rows.length) }];
+}
+
+function selectIntake(params: unknown[]): Row[] {
+  const agentId = String(params[0] || "");
+  let rows = loadTable("intake").filter((r) => !r.deletedAt);
+  rows = rows.filter((r) => r.agentId === agentId);
+
+  let limit = 200;
+  let offset = 0;
+
+  if (params.length >= 4 && typeof params[1] === "string") {
+    rows = filterIntakeBySearch(rows, String(params[1]));
+    limit = Math.min(500, Math.max(1, Number(params[2]) || 200));
+    offset = Math.max(0, Number(params[3]) || 0);
+  } else if (params.length >= 3) {
+    limit = Math.min(500, Math.max(1, Number(params[1]) || 200));
+    offset = Math.max(0, Number(params[2]) || 0);
+  } else if (params.length === 2 && typeof params[1] === "string") {
+    rows = filterIntakeBySearch(rows, String(params[1]));
+  }
+
+  rows.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  return rows.slice(offset, offset + limit);
 }
 
 // ─── SELECT content items ────────────────────────────────────────

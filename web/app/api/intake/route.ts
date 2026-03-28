@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listIntake, addIntake, updateIntake, deleteIntake, type IntakeSource } from "@/lib/intake";
+import {
+  listIntake,
+  countIntake,
+  addIntake,
+  updateIntake,
+  deleteIntake,
+  type IntakeSource,
+} from "@/lib/intake";
 
 const SOURCES = new Set<IntakeSource>(["ui", "agent", "share", "email"]);
 
@@ -8,13 +15,28 @@ function parseSource(v: unknown): IntakeSource {
   return SOURCES.has(s as IntakeSource) ? (s as IntakeSource) : "ui";
 }
 
+function parseNonNegInt(v: string | null, fallback: number): number {
+  if (v == null || v === "") return fallback;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 export async function GET(request: NextRequest) {
   const agentId = request.nextUrl.searchParams.get("agent") || "suzi";
   const search = request.nextUrl.searchParams.get("search") || undefined;
+  const limitRaw = request.nextUrl.searchParams.get("limit");
+  const offset = parseNonNegInt(request.nextUrl.searchParams.get("offset"), 0);
+  const limit =
+    limitRaw != null && limitRaw !== ""
+      ? Math.min(500, Math.max(1, parseNonNegInt(limitRaw, 200) || 200))
+      : 200;
 
   try {
-    const items = await listIntake(agentId, { search });
-    return NextResponse.json({ items });
+    const [items, total] = await Promise.all([
+      listIntake(agentId, { search, limit, offset }),
+      countIntake(agentId, { search }),
+    ]);
+    return NextResponse.json({ items, total });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Failed to fetch intake";
     return NextResponse.json({ error: msg }, { status: 500 });

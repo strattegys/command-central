@@ -16,12 +16,16 @@ export interface IntakeItem {
 
 interface ListOpts {
   search?: string;
+  /** Default 200 when omitted (tools / full list). */
+  limit?: number;
+  /** Default 0 when omitted. */
+  offset?: number;
 }
 
-export async function listIntake(
+export async function countIntake(
   agentId: string,
-  opts: ListOpts = {}
-): Promise<IntakeItem[]> {
+  opts: { search?: string } = {}
+): Promise<number> {
   const conditions = [`"agentId" = $1`, `"deletedAt" IS NULL`];
   const params: unknown[] = [agentId];
   let idx = 2;
@@ -33,8 +37,41 @@ export async function listIntake(
   }
 
   const where = conditions.join(" AND ");
+  const rows = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM "_intake" WHERE ${where}`,
+    params
+  );
+  const n = parseInt(rows[0]?.count ?? "0", 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function listIntake(
+  agentId: string,
+  opts: ListOpts = {}
+): Promise<IntakeItem[]> {
+  const limit =
+    opts.limit !== undefined
+      ? Math.min(500, Math.max(1, opts.limit))
+      : 200;
+  const offset = opts.offset !== undefined ? Math.max(0, opts.offset) : 0;
+
+  const conditions = [`"agentId" = $1`, `"deletedAt" IS NULL`];
+  const params: unknown[] = [agentId];
+  let idx = 2;
+
+  if (opts.search) {
+    conditions.push(`(title ILIKE $${idx} OR body ILIKE $${idx} OR url ILIKE $${idx})`);
+    params.push(`%${opts.search}%`);
+    idx++;
+  }
+
+  params.push(limit, offset);
+  const limPh = `$${idx}`;
+  const offPh = `$${idx + 1}`;
+
+  const where = conditions.join(" AND ");
   const rows = await query<Record<string, unknown>>(
-    `SELECT * FROM "_intake" WHERE ${where} ORDER BY "updatedAt" DESC LIMIT 200`,
+    `SELECT * FROM "_intake" WHERE ${where} ORDER BY "createdAt" ASC LIMIT ${limPh} OFFSET ${offPh}`,
     params
   );
   return rows.map(rowToIntake);
