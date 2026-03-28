@@ -7,6 +7,7 @@ const GROUNDED_TOOL_NAMES = new Set([
   "punch_list",
   "reminders",
   "notes",
+  "intake",
   "workflow_items",
 ]);
 

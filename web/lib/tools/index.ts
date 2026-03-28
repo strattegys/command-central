@@ -22,6 +22,7 @@ import workflowItems from "./workflow-items";
 import packageManager from "./package-manager";
 import punchListTool from "./punch-list-tool";
 import notesTool from "./notes-tool";
+import intakeTool from "./intake-tool";
 import publishArticle from "./publish-article";
 import articleBuilder from "./article-builder";
 
@@ -40,6 +41,7 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   package_manager: packageManager,
   punch_list: punchListTool,
   notes: notesTool,
+  intake: intakeTool,
   publish_article: publishArticle,
   article_builder: articleBuilder,
 };

@@ -42,7 +42,7 @@ The **work panel** is the **space underneath the agent header** when a **work-re
   - **Penny** — `PennyDashboardPanel`: Package Planner | Package Templates | Workflow Templates
   - **Friday** — `FridayDashboardPanel`: Packages | Human tasks | Tools
   - **Tim** — `TimAgentPanel`: Active Work Queue | Pending Work Queue
-  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes (per implementation)
+  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes | Intake
 
 **Adding a new capability for an agent**
 
@@ -57,7 +57,7 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 | Friday | Packages dashboard (grid icon) | `FridayDashboardPanel`      | Packages, Human tasks, Tools                              |
 | Penny  | Packages dashboard (grid icon) | `PennyDashboardPanel`       | Package Planner, Package Templates, Workflow Templates    |
 | Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     |
-| Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes (per implementation)       |
+| Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes, Intake                       |
 | Others | Kanban where `agentHasKanban`  | `KanbanInlinePanel` or info | As needed                                                 |
 
 ## Key files
@@ -73,6 +73,8 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 ## Deep links
 
 Query params such as `?agent=friday&panel=…` map to `RightPanel` where supported. For example, `panel=tasks` for Friday is interpreted as **dashboard + Human tasks tab** so bookmarks and links keep working without a separate top-level `tasks` panel.
+
+For **Suzi**, `?agent=suzi&panel=reminders&suziSub=intake` opens the work panel and selects the **Intake** sub-tab (e.g. after PWA share redirect).
 
 ---
 

@@ -23,6 +23,7 @@ export type ToolId =
   | "package_manager"
   | "punch_list"
   | "notes"
+  | "intake"
   | "publish_article"
   | "article_builder";
 

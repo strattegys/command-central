@@ -90,6 +90,34 @@ export async function devQuery(sql: string, params?: unknown[]): Promise<Row[]> 
     return insertInto("artifacts", s, p);
   }
 
+  // INSERT INTO "_intake" (Suzi Intake tab)
+  if (s.includes('INSERT INTO "_intake"')) {
+    insertInto("intake", s, p);
+    const all = loadTable("intake");
+    return all.length > 0 ? [all[all.length - 1]] : [];
+  }
+
+  // SELECT FROM "_intake" (message id dedupe)
+  if (s.includes('FROM "_intake"') && s.includes("meta->>'messageId'")) {
+    const mid = String(p[0] || "");
+    const rows = loadTable("intake").filter((r) => !r.deletedAt);
+    const hit = rows.some((r) => {
+      const meta = r.meta as Record<string, unknown> | undefined;
+      return meta && String(meta.messageId || "") === mid;
+    });
+    return hit ? [{ x: 1 }] : [];
+  }
+
+  // SELECT FROM "_intake" (list)
+  if (s.includes('FROM "_intake"') && s.includes("SELECT")) {
+    return selectIntake(p);
+  }
+
+  // UPDATE "_intake"
+  if (s.includes('UPDATE "_intake"')) {
+    return updateTable("intake", s, p);
+  }
+
   // SELECT with subquery COUNT for packages listing
   if (s.includes('FROM "_package"') && s.includes("SELECT")) {
     return selectPackages(s, p);
@@ -428,6 +456,28 @@ function selectArtifacts(sql: string, params: unknown[]): Row[] {
   const filtered = rows.filter((r) => matchesConditions(r, conditions));
   filtered.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
   return filtered;
+}
+
+// ─── SELECT intake (Suzi) ───────────────────────────────────────
+
+function selectIntake(params: unknown[]): Row[] {
+  let rows = loadTable("intake").filter((r) => !r.deletedAt);
+  const agentId = String(params[0] || "");
+  rows = rows.filter((r) => r.agentId === agentId);
+  if (params.length >= 2 && typeof params[1] === "string") {
+    const pat = params[1];
+    const inner = pat.replace(/^%|%$/g, "").toLowerCase();
+    if (inner) {
+      rows = rows.filter(
+        (r) =>
+          String(r.title || "").toLowerCase().includes(inner) ||
+          String(r.body || "").toLowerCase().includes(inner) ||
+          String(r.url || "").toLowerCase().includes(inner)
+      );
+    }
+  }
+  rows.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  return rows.slice(0, 200);
 }
 
 // ─── SELECT content items ────────────────────────────────────────

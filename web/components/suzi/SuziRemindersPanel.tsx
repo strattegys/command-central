@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
 import SuziNotesPanel from "./SuziNotesPanel";
+import SuziIntakePanel from "./SuziIntakePanel";
 import { panelBus } from "@/lib/events";
 import type { SuziWorkSubTab } from "@/lib/suzi-work-panel";
 
@@ -71,14 +73,28 @@ export default function SuziRemindersPanel({
   onClose,
   onSubTabChange,
 }: SuziRemindersPanelProps) {
+  const searchParams = useSearchParams();
+
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_panel_subtab");
-      if (saved === "reminders" || saved === "notes" || saved === "punchlist")
+      if (
+        saved === "reminders" ||
+        saved === "notes" ||
+        saved === "punchlist" ||
+        saved === "intake"
+      )
         return saved as SubTab;
     }
     return "punchlist";
   });
+
+  useEffect(() => {
+    const t = searchParams.get("suziSub");
+    if (t === "intake" || t === "notes" || t === "punchlist" || t === "reminders") {
+      setSubTab(t as SubTab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     localStorage.setItem("suzi_panel_subtab", subTab);
@@ -211,13 +227,21 @@ export default function SuziRemindersPanel({
 
   // Helper to render the 3-tab header
   const renderSubTabHeader = () => (
-    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-      {(["punchlist", "reminders", "notes"] as SubTab[]).map((tab) => {
-        const label = tab === "punchlist" ? "Punch List" : tab === "notes" ? "Notes" : "Reminders";
+    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1 flex-wrap">
+      {(["punchlist", "reminders", "notes", "intake"] as SubTab[]).map((tab) => {
+        const label =
+          tab === "punchlist"
+            ? "Punch List"
+            : tab === "notes"
+              ? "Notes"
+              : tab === "intake"
+                ? "Intake"
+                : "Reminders";
         const isActive = subTab === tab;
         return (
           <span key={tab} className="contents">
             <button
+              type="button"
               onClick={() => setSubTab(tab)}
               className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
                 isActive
@@ -238,6 +262,15 @@ export default function SuziRemindersPanel({
       <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
         {renderSubTabHeader()}
         <SuziNotesPanel onClose={onClose} embedded />
+      </div>
+    );
+  }
+
+  if (subTab === "intake") {
+    return (
+      <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+        {renderSubTabHeader()}
+        <SuziIntakePanel onClose={onClose} embedded />
       </div>
     );
   }
