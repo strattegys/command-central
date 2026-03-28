@@ -12,11 +12,13 @@ function getAllowlist(): string[] {
     .filter(Boolean);
 }
 
-function verifySecret(req: Request): boolean {
+/** Secret: query `?secret=`, header, Bearer, first path segment `/intake-inbound/<secret>` (Postmark-safe). */
+function verifySecret(req: Request, pathSecret?: string): boolean {
   if (!SECRET) {
     console.warn("[intake-inbound] INTAKE_INBOUND_WEBHOOK_SECRET is unset — rejecting");
     return false;
   }
+  if (pathSecret === SECRET) return true;
   const q = new URL(req.url).searchParams.get("secret");
   if (q === SECRET) return true;
   const h = req.headers.get("x-intake-inbound-secret");
@@ -70,16 +72,7 @@ function parsePostmarkJson(body: Record<string, unknown>): ParsedInbound | null 
 }
 
 async function parseRequest(req: Request): Promise<ParsedInbound | null> {
-  const ct = req.headers.get("content-type") || "";
-
-  if (ct.includes("application/json")) {
-    try {
-      const body = (await req.json()) as Record<string, unknown>;
-      return parsePostmarkJson(body);
-    } catch {
-      return null;
-    }
-  }
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
 
   if (ct.includes("multipart/form-data") || ct.includes("application/x-www-form-urlencoded")) {
     const form = await req.formData();
@@ -98,11 +91,37 @@ async function parseRequest(req: Request): Promise<ParsedInbound | null> {
     return { from, subject, textBody, messageId };
   }
 
-  return null;
+  if (ct.includes("application/json") || ct.includes("+json")) {
+    try {
+      const body = (await req.json()) as Record<string, unknown>;
+      return parsePostmarkJson(body);
+    } catch {
+      return null;
+    }
+  }
+
+  // Some senders use JSON bodies without a standard JSON Content-Type.
+  try {
+    const raw = await req.text();
+    if (!raw.trim()) return null;
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    return parsePostmarkJson(body);
+  } catch {
+    return null;
+  }
 }
 
-export async function POST(req: Request) {
-  if (!verifySecret(req)) {
+type RouteCtx = { params: Promise<{ segments?: string[] }> };
+
+function pathSecretFromParams(segments: string[] | undefined): string | undefined {
+  if (!segments?.length) return undefined;
+  return segments[0];
+}
+
+export async function POST(req: Request, ctx: RouteCtx) {
+  const { segments } = await ctx.params;
+  const pathSecret = pathSecretFromParams(segments);
+  if (!verifySecret(req, pathSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -140,7 +159,12 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-export async function GET() {
+export async function GET(_req: Request, ctx: RouteCtx) {
+  const { segments } = await ctx.params;
+  const pathSecret = pathSecretFromParams(segments);
+  if (SECRET && pathSecret !== undefined && pathSecret !== SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const allow = getAllowlist();
   return NextResponse.json({
     status: "ok",
