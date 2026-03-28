@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 /** Mirrors API / DB shape; keep free of `@/lib/intake` so the client bundle does not pull `db`. */
 export interface IntakeCardItem {
   id: string;
@@ -27,6 +29,28 @@ const SOURCE_COLOR: Record<string, string> = {
 interface IntakeCardProps {
   item: IntakeCardItem;
   onDelete?: (id: string) => void;
+}
+
+/** Pacific time after mount only — avoids SSR/client Intl mismatches for `toLocaleString`. */
+function IntakeUpdatedLabel({ updatedAt }: { updatedAt: string }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    setText(
+      new Date(updatedAt).toLocaleString("en-US", {
+        timeZone: "America/Los_Angeles",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    );
+  }, [updatedAt]);
+  return (
+    <span className="text-[9px] text-[var(--text-tertiary)] tabular-nums whitespace-nowrap min-h-[1em] inline-block align-bottom">
+      {text ?? "\u00a0"}
+    </span>
+  );
 }
 
 export default function IntakeCard({ item, onDelete }: IntakeCardProps) {
@@ -85,16 +109,7 @@ export default function IntakeCard({ item, onDelete }: IntakeCardProps) {
         >
           {label}
         </span>
-        <span className="text-[9px] text-[var(--text-tertiary)] tabular-nums whitespace-nowrap">
-          {new Date(item.updatedAt).toLocaleString("en-US", {
-            timeZone: "America/Los_Angeles",
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}
-        </span>
+        <IntakeUpdatedLabel updatedAt={item.updatedAt} />
       </div>
     </div>
   );

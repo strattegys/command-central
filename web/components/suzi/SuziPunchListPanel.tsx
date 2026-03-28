@@ -27,20 +27,15 @@ export default function SuziPunchListPanel({
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("suzi_punchlist_filter");
-      if (saved && STATUS_FILTERS.includes(saved as StatusFilter))
-        return saved as StatusFilter;
-    }
-    return "Open";
-  });
-  const [search, setSearch] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("suzi_punchlist_search") || "";
-    }
-    return "";
-  });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("Open");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("suzi_punchlist_filter");
+    if (saved && STATUS_FILTERS.includes(saved as StatusFilter)) setStatusFilter(saved as StatusFilter);
+    const s = localStorage.getItem("suzi_punchlist_search");
+    if (s) setSearch(s);
+  }, []);
 
   // Drag state
   const [dragItemId, setDragItemId] = useState<string | null>(null);

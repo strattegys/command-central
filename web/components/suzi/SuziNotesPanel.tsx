@@ -13,18 +13,15 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
-  const [selectedTag, setSelectedTag] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("suzi_notes_tag") || null;
-    }
-    return null;
-  });
-  const [search, setSearch] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("suzi_notes_search") || "";
-    }
-    return "";
-  });
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const tag = localStorage.getItem("suzi_notes_tag");
+    if (tag) setSelectedTag(tag);
+    const s = localStorage.getItem("suzi_notes_search");
+    if (s) setSearch(s);
+  }, []);
 
   // Persist filter state
   useEffect(() => {

@@ -12,16 +12,16 @@ interface SuziIntakePanelProps {
 export default function SuziIntakePanel({ onClose: _onClose, embedded = false }: SuziIntakePanelProps) {
   const [items, setItems] = useState<IntakeCardItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("suzi_intake_search") || "";
-    }
-    return "";
-  });
+  const [search, setSearch] = useState("");
   const [titleIn, setTitleIn] = useState("");
   const [urlIn, setUrlIn] = useState("");
   const [bodyIn, setBodyIn] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("suzi_intake_search");
+    if (saved) setSearch(saved);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("suzi_intake_search", search);

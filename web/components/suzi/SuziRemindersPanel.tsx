@@ -75,26 +75,29 @@ export default function SuziRemindersPanel({
 }: SuziRemindersPanelProps) {
   const searchParams = useSearchParams();
 
-  const [subTab, setSubTab] = useState<SubTab>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("suzi_panel_subtab");
-      if (
-        saved === "reminders" ||
-        saved === "notes" ||
-        saved === "punchlist" ||
-        saved === "intake"
-      )
-        return saved as SubTab;
-    }
-    return "punchlist";
-  });
+  const [subTab, setSubTab] = useState<SubTab>("punchlist");
 
+  const suziSubParam = searchParams.get("suziSub");
   useEffect(() => {
-    const t = searchParams.get("suziSub");
-    if (t === "intake" || t === "notes" || t === "punchlist" || t === "reminders") {
-      setSubTab(t as SubTab);
+    if (
+      suziSubParam === "intake" ||
+      suziSubParam === "notes" ||
+      suziSubParam === "punchlist" ||
+      suziSubParam === "reminders"
+    ) {
+      setSubTab(suziSubParam as SubTab);
+      return;
     }
-  }, [searchParams]);
+    const saved = localStorage.getItem("suzi_panel_subtab");
+    if (
+      saved === "reminders" ||
+      saved === "notes" ||
+      saved === "punchlist" ||
+      saved === "intake"
+    ) {
+      setSubTab(saved as SubTab);
+    }
+  }, [suziSubParam]);
 
   useEffect(() => {
     localStorage.setItem("suzi_panel_subtab", subTab);
@@ -106,27 +109,19 @@ export default function SuziRemindersPanel({
 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("suzi_reminder_filter");
-      if (saved && FILTERS.includes(saved as Filter)) return saved as Filter;
-    }
-    return "All";
-  });
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("suzi_reminder_time_filter");
-      if (saved && TIME_FILTERS.includes(saved as TimeFilter)) return saved as TimeFilter;
-    }
-    return "Any Time";
-  });
-  const [search, setSearch] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("suzi_reminder_search") || "";
-    }
-    return "";
-  });
+  const [filter, setFilter] = useState<Filter>("All");
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("Any Time");
+  const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  useEffect(() => {
+    const sf = localStorage.getItem("suzi_reminder_filter");
+    if (sf && FILTERS.includes(sf as Filter)) setFilter(sf as Filter);
+    const tf = localStorage.getItem("suzi_reminder_time_filter");
+    if (tf && TIME_FILTERS.includes(tf as TimeFilter)) setTimeFilter(tf as TimeFilter);
+    const s = localStorage.getItem("suzi_reminder_search");
+    if (s) setSearch(s);
+  }, []);
 
   // Persist filter state to localStorage
   useEffect(() => { localStorage.setItem("suzi_reminder_filter", filter); }, [filter]);
