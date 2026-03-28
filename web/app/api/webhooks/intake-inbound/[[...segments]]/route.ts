@@ -69,7 +69,8 @@ function parsePostmarkJson(body: Record<string, unknown>): ParsedInbound | null 
       : typeof body.TextBody === "string"
         ? body.TextBody
         : "") || "";
-  const htmlBody = typeof body.HtmlBody === "string" ? body.HtmlBody : "";
+  const htmlRaw = body.HtmlBody ?? (body as Record<string, unknown>).HTMLBody ?? (body as Record<string, unknown>).htmlBody;
+  const htmlBody = typeof htmlRaw === "string" ? htmlRaw : "";
   const messageId =
     typeof body.MessageID === "string"
       ? body.MessageID
@@ -152,11 +153,11 @@ export async function POST(req: Request, ctx: RouteCtx) {
   const title = parsed.subject.trim().slice(0, 500) || "Email capture";
   const plainFromHtml = htmlToPlainText(parsed.htmlBody);
   const mergedPlain = parsed.textBody.trim() || plainFromHtml.trim();
-  const bodyText = mergedPlain ? mergedPlain.slice(0, 20000) : null;
   const urlFromBody =
     extractFirstUrl(parsed.textBody) ||
     extractFirstUrlFromHtml(parsed.htmlBody) ||
     (mergedPlain ? extractFirstUrl(mergedPlain) : null);
+  const bodyText = mergedPlain ? mergedPlain.slice(0, 20000) : null;
 
   await addIntake("suzi", {
     title,

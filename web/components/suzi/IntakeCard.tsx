@@ -85,11 +85,14 @@ export default function IntakeCard({ item, onDelete }: IntakeCardProps) {
         >
           {label}
         </span>
-        <span className="text-[9px] text-[var(--text-tertiary)]">
-          {new Date(item.updatedAt).toLocaleDateString("en-US", {
+        <span className="text-[9px] text-[var(--text-tertiary)] tabular-nums whitespace-nowrap">
+          {new Date(item.updatedAt).toLocaleString("en-US", {
             timeZone: "America/Los_Angeles",
             month: "short",
             day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
           })}
         </span>
       </div>

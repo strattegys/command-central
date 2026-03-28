@@ -142,10 +142,20 @@ function stripTrailingUrlPunct(url: string): string {
   return url.replace(/[),.;]+$/g, "");
 }
 
+function normalizeHttpHref(raw: string): string | null {
+  let h = raw.trim();
+  if (h.startsWith("//")) h = `https:${h}`;
+  if (!/^https?:\/\//i.test(h)) return null;
+  return stripTrailingUrlPunct(h);
+}
+
 /** Extract first http(s) URL from text (email bodies, share text). */
 export function extractFirstUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s<>"{}|\\^`[\]]+/i);
-  return m ? stripTrailingUrlPunct(m[0]) : null;
+  if (m) return stripTrailingUrlPunct(m[0]);
+  const m2 = text.match(/(?<![\w/:])\/\/[^\s<>"{}|\\^`[\]]+/i);
+  if (m2) return stripTrailingUrlPunct(`https:${m2[0]}`);
+  return null;
 }
 
 /**
@@ -154,7 +164,20 @@ export function extractFirstUrl(text: string): string | null {
  */
 export function htmlToPlainText(html: string, maxLen = 20000): string {
   if (!html.trim()) return "";
-  let t = html
+  let t = html;
+  // Expand anchors first so empty <a href="…"></a> and protocol-relative hrefs still yield visible text.
+  t = t.replace(
+    /<a\b[^>]*\bhref\s*=\s*["']((?:https?:)?\/\/[^"'\s>]+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    (_match, rawHref: string, inner: string) => {
+      const href = normalizeHttpHref(rawHref);
+      const innerT = inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (href && innerT) return `${innerT}\n${href}\n`;
+      if (href) return `${href}\n`;
+      if (innerT) return `${innerT}\n`;
+      return "";
+    }
+  );
+  t = t
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "");
   t = t.replace(/<\/(p|div|tr|h[1-6])\s*>/gi, "\n");
@@ -166,6 +189,7 @@ export function htmlToPlainText(html: string, maxLen = 20000): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
   t = t.replace(/\s+\n/g, "\n").replace(/\n\s+/g, "\n").replace(/[ \t]{2,}/g, " ").trim();
@@ -175,8 +199,11 @@ export function htmlToPlainText(html: string, maxLen = 20000): string {
 /** First http(s) URL from HTML: prefer href=, else scan stripped text. */
 export function extractFirstUrlFromHtml(html: string): string | null {
   if (!html.trim()) return null;
-  const href = html.match(/href\s*=\s*["'](https?:\/\/[^"'>\s]+)/i);
-  if (href) return stripTrailingUrlPunct(href[1]);
+  const href = html.match(/href\s*=\s*["']((?:https?:)?\/\/[^"'>\s]+)/i);
+  if (href) {
+    const n = normalizeHttpHref(href[1]);
+    if (n) return n;
+  }
   const plain = htmlToPlainText(html, 50000);
   return extractFirstUrl(plain);
 }
